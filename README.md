@@ -40,7 +40,13 @@ Command substitution `$(...)`, here-documents, and `case` statements are parsed 
 
 ## Installation
 
-Install from GitHub with pi:
+Install from npm with pi:
+
+```bash
+pi install npm:@lglen/pi-parse-commands
+```
+
+Or straight from GitHub:
 
 ```bash
 pi install git:github.com/LaishGlenberg/pi-parse-commands
@@ -60,6 +66,7 @@ Requirements: Node.js 22.19 or newer and npm.
 npm install
 npm test
 npm run typecheck
+npm run lint
 ```
 
 See [docs/development.md](docs/development.md) for parser details, test strategy, and release steps.

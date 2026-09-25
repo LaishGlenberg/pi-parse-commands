@@ -1,5 +1,5 @@
 {
-	"name": "pi-parse-commands",
+	"name": "@lglen/pi-parse-commands",
 	"version": "1.0.0",
 	"type": "module",
 	"description": "Split dense chained bash commands into a numbered breakdown box below the tool call",
@@ -29,6 +29,9 @@
 		"README.md",
 		"LICENSE"
 	],
+	"publishConfig": {
+		"access": "public"
+	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*"
@@ -44,6 +47,7 @@
 	"scripts": {
 		"test": "vitest --run",
 		"typecheck": "tsc --noEmit",
-    	"lint": "oxlint --deny-warnings index.ts src scripts test"
+		"lint": "oxlint --deny-warnings index.ts scripts test",
+		"prepublishOnly": "npm test && npm run typecheck"
 	}
 }

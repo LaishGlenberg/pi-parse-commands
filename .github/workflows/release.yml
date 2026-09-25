@@ -4,9 +4,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: write
+  # Required for npm provenance attestations.
+  id-token: write
 
 # Queue releases instead of cancelling them so a version bump is never lost.
 concurrency:
@@ -26,18 +29,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
 
       - name: Decide the next version
         id: version
         shell: bash
         run: |
           current=$(node -p "require('./package.json').version")
-          previous=""
-          if git cat-file -e "${{ github.event.before }}:package.json" 2>/dev/null; then
-            previous=$(git show "${{ github.event.before }}:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
+            tag_exists=true
+          else
+            tag_exists=false
           fi
 
-          node scripts/release-version.ts --current "$current" --previous "$previous" >> "$GITHUB_OUTPUT"
+          node scripts/release-version.ts --current "$current" --tag-exists "$tag_exists" >> "$GITHUB_OUTPUT"
 
       - name: Bump the patch version
         if: steps.version.outputs.needs_bump == 'true'
@@ -52,6 +59,9 @@ jobs:
           git commit -m "chore(release): ${{ steps.version.outputs.tag }} [skip ci]"
           git push
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Create the tag if it does not exist
         run: |
           tag="${{ steps.version.outputs.tag }}"
@@ -62,6 +72,19 @@ jobs:
           fi
           git tag "$tag"
           git push origin "$tag"
+
+      - name: Publish to npm if the version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already published; skipping."
+            exit 0
+          fi
+          echo "Publishing $name@$version"
+          npm publish --access public --provenance
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
