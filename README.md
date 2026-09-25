@@ -1,5 +1,9 @@
 # Pi Parse Commands
 
+[![npm version](https://img.shields.io/npm/v/@lglen/pi-parse-commands.svg?logo=npm)](https://www.npmjs.com/package/@lglen/pi-parse-commands)
+[![Downloads](https://img.shields.io/npm/dm/@lglen/pi-parse-commands.svg?logo=npm)](https://www.npmjs.com/package/@lglen/pi-parse-commands)
+[![Build Status](https://github.com/LaishGlenberg/pi-parse-commands/workflows/CI/badge.svg)](https://github.com/LaishGlenberg/pi-parse-commands/actions)
+
 A pi coding agent extension that lists every command in a chained bash tool call.
 
 ## Problem
@@ -79,9 +83,6 @@ commands:
   rm: 3
   rg: 2
 ```
-
-Only the executable at the beginning of each parsed command is highlighted, so an
-argument that merely contains `node` is not colored. Invalid levels are ignored.
 
 ## Behavior
 
