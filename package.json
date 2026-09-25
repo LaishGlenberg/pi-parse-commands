@@ -1,9 +1,14 @@
 {
 	"name": "@lglen/pi-parse-commands",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"type": "module",
 	"description": "Split dense chained bash commands into a numbered breakdown box below the tool call",
-	"keywords": ["pi-package", "pi", "extension", "bash"],
+	"keywords": [
+		"pi-package",
+		"pi",
+		"extension",
+		"bash"
+	],
 	"license": "MIT",
 	"author": "LaishGlenberg",
 	"repository": {
