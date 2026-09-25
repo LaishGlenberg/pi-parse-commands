@@ -57,9 +57,11 @@ each pass so re-renders do not duplicate the command. It also mirrors the
 built-in timing state (`startedAt` / `endedAt`) so the original `renderResult`
 can still display the elapsed time.
 
-The breakdown uses a padded `Text` component with `theme.bg("customMessageBg", ...)`.
-Its width is kept at the child viewport width so the built-in tool renderer's
-one-cell right padding remains visible as a clean terminal-background margin.
+The breakdown uses a padded `Text` component with
+`theme.bg("customMessageBg", ...)`. Since nested background helpers reset ANSI
+background state, each line restores the parent tool background with
+`theme.getBgAnsi(...)`; otherwise the built-in tool renderer's right padding
+would appear as a black strip.
 
 ## Testing
 

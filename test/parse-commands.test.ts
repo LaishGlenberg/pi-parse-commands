@@ -54,6 +54,7 @@ import bashCommandBreakdown, {
 interface FakeFg {
 	fg: (color: string, text: string) => string;
 	bg: (color: string, text: string) => string;
+	getBgAnsi: (color: string) => string;
 	bold: (text: string) => string;
 	dim: (text: string) => string;
 }
@@ -61,6 +62,7 @@ interface FakeFg {
 const theme: FakeFg = {
 	fg: (color, text) => `{${color}:${text}}`,
 	bg: (color, text) => `[bg=${color}]${text}[/bg]`,
+	getBgAnsi: (color) => `[bg-start=${color}]`,
 	bold: (text) => `*${text}*`,
 	dim: (text) => `~${text}~`,
 };
@@ -365,6 +367,7 @@ describe("pi-parse-commands extension", () => {
 		const ansiTheme: FakeFg = {
 			fg: (_color, text) => `\x1b[38;5;1m${text}\x1b[39m`,
 			bg: (_color, text) => `\x1b[48;5;2m${text}\x1b[49m`,
+			getBgAnsi: (_color) => "\x1b[48;5;3m",
 			bold: (text) => `\x1b[1m${text}\x1b[22m`,
 			dim: (text) => `\x1b[2m${text}\x1b[22m`,
 		};
@@ -376,8 +379,11 @@ describe("pi-parse-commands extension", () => {
 		const outer = new Box(1, 1, (text) => `\x1b[48;5;3m${text}\x1b[49m`);
 		outer.addChild(inner);
 		const customBackground = "\x1b[48;5;2m";
+		const customReset = "\x1b[49m";
+		const outerBackground = "\x1b[48;5;3m";
 		const outerReset = "\x1b[49m";
 		for (const line of outer.render(40).filter((line) => line.includes(customBackground))) {
+			expect(line).toContain(`${customReset}${outerBackground}`);
 			expect(line.slice(0, -outerReset.length).endsWith(" ")).toBe(true);
 		}
 	});

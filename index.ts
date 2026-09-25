@@ -226,13 +226,15 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 
 			const segments = parseShellCommands(typeof args?.command === "string" ? args.command : "");
 			if (segments.length > 1) {
-				// Text owns the background and horizontal padding so every rendered row,
-				// including the right edge, is filled at the exact parent width.
+				// The parent ToolExecution box supplies the tool background. A nested
+				// theme.bg() resets that background, so restore it after each custom
+				// background line; otherwise the parent's right padding becomes black.
+				const toolBackground = context.isPartial ? "toolPendingBg" : context.isError ? "toolErrorBg" : "toolSuccessBg";
 				const breakdown = new Text(
 					formatCommandBreakdown(segments, theme, config),
 					1,
 					1,
-					(text) => theme.bg("customMessageBg", text),
+					(text) => `${theme.bg("customMessageBg", text)}${theme.getBgAnsi(toolBackground)}`,
 				);
 				container.addChild(new Spacer(1));
 				container.addChild(breakdown);
