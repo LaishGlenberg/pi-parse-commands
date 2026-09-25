@@ -32,7 +32,13 @@ The breakdown box uses a slightly different background color so it reads as an i
 
 ## What it splits on
 
-- `&&`, `||`, `|&`, `|`, `;`, `&`, and newlines
+By default the breakdown splits on the main command-list operators plus newlines:
+
+- `&&`, `||`, `;`, and newlines
+
+The pipe and background operators are opt-in through the `separators` config:
+
+- `|&`, `|`, `&`
 
 It does **not** split inside:
 
@@ -73,7 +79,10 @@ used). JSONC supports comments and trailing commas:
     "node": 1,
     "rm": 3,
     "rg": 2
-  }
+  },
+  // List operators that start a new breakdown line.
+  // Defaults to the three below; add any of "|&", "|", "&" to opt in.
+  "separators": ["&&", "||", ";"]
 }
 ```
 
@@ -84,6 +93,7 @@ commands:
   node: 1
   rm: 3
   rg: 2
+separators: ["&&", "||", ";"]
 ```
 
 ## Behavior

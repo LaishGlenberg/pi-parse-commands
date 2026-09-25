@@ -24,8 +24,12 @@ scanner is outside both quote states.
 
 Segment separators:
 
-- `&&`, `||`, `|&`, `|`, `;`, `&`
+- default: `&&`, `||`, `;`
+- optional, enabled through the `separators` config: `|&`, `|`, `&`
 - newlines (recorded without an operator label)
+
+An explicit empty `separators` list is honored, leaving only newline
+splitting. Unknown entries are dropped and duplicates are collapsed.
 
 The scanner deliberately keeps these out of the split:
 
@@ -51,6 +55,8 @@ summarized as `... and N more`.
 `config.yml` found in `~/.pi/agent/extensions/pi-parse-commands-config/` (or the
 configured directory). JSONC comments/trailing commas and YAML are supported.
 Levels 0 through 3 map to the theme's green, yellow, orange, and red colors.
+The optional `separators` array selects which list operators split the
+breakdown; it defaults to `["&&", "||", ";"]`.
 
 `renderCall` reuses the container from `context.lastComponent` and clears it on
 each pass so re-renders do not duplicate the command. It also mirrors the
