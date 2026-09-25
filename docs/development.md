@@ -58,9 +58,8 @@ built-in timing state (`startedAt` / `endedAt`) so the original `renderResult`
 can still display the elapsed time.
 
 The breakdown uses a padded `Text` component with `theme.bg("customMessageBg", ...)`.
-It renders one cell wider than its child viewport because the built-in tool
-renderer adds a one-cell right padding; this keeps the inset background flush
-with the terminal's right edge.
+Its width is kept at the child viewport width so the built-in tool renderer's
+one-cell right padding remains visible as a clean terminal-background margin.
 
 ## Testing
 

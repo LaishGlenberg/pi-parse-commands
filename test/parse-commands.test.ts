@@ -361,24 +361,24 @@ describe("pi-parse-commands extension", () => {
 		expect(output).toContain("{warning:node}");
 	});
 
-	it("fills the right edge inside the built-in padded tool box", () => {
+	it("leaves a one-cell terminal margin at the right edge", () => {
 		const ansiTheme: FakeFg = {
-			fg: (_color, text) => `\\x1b[38;5;1m${text}\\x1b[39m`,
-			bg: (_color, text) => `\\x1b[48;5;2m${text}\\x1b[49m`,
-			bold: (text) => `\\x1b[1m${text}\\x1b[22m`,
-			dim: (text) => `\\x1b[2m${text}\\x1b[22m`,
+			fg: (_color, text) => `\x1b[38;5;1m${text}\x1b[39m`,
+			bg: (_color, text) => `\x1b[48;5;2m${text}\x1b[49m`,
+			bold: (text) => `\x1b[1m${text}\x1b[22m`,
+			dim: (text) => `\x1b[2m${text}\x1b[22m`,
 		};
 		const inner = collectTool().renderCall(
 			{ command: "first && second" },
 			ansiTheme,
 			{ state: {}, executionStarted: true, lastComponent: undefined },
 		);
-		const outer = new Box(1, 1, (text) => `\\x1b[48;5;3m${text}\\x1b[49m`);
+		const outer = new Box(1, 1, (text) => `\x1b[48;5;3m${text}\x1b[49m`);
 		outer.addChild(inner);
-		const customBackground = "\\x1b[48;5;2m";
-		const outerReset = "\\x1b[49m";
+		const customBackground = "\x1b[48;5;2m";
+		const outerReset = "\x1b[49m";
 		for (const line of outer.render(40).filter((line) => line.includes(customBackground))) {
-			expect(line.slice(0, -outerReset.length).endsWith(" ")).toBe(false);
+			expect(line.slice(0, -outerReset.length).endsWith(" ")).toBe(true);
 		}
 	});
 
