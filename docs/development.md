@@ -90,6 +90,20 @@ npm run typecheck
 npm run lint
 ```
 
+### Local pi layout
+
+For a local checkout, link the whole extension directory rather than only its
+entry point:
+
+```bash
+ln -s /path/to/pi-parse-commands ~/.pi/agent/extensions/pi-parse-commands
+```
+
+Keep user configuration in the sibling directory
+`~/.pi/agent/extensions/pi-parse-commands-config/`. If pi does not discover
+nested extension files automatically, add `+extensions/pi-parse-commands/index.ts`
+to the `extensions` list in `~/.pi/agent/settings.json`.
+
 ## Release
 
 Releases run automatically through `.github/workflows/release.yml` on every
