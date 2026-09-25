@@ -1,6 +1,6 @@
 {
 	"name": "@lglen/pi-parse-commands",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"type": "module",
 	"description": "Split dense chained bash commands into a numbered breakdown box below the tool call",
 	"keywords": [
