@@ -66,45 +66,72 @@ The box uses `theme.bg("customMessageBg", ...)` to read as an inset annotation.
 The coding-agent package is mocked in the tests because the extension only
 needs a bash definition to wrap; its execution path is not exercised.
 
+`test/package.test.ts` covers the publishable artifact: package metadata, the
+`npm pack` file list, and an end-to-end install that runs the real `pi` CLI
+against the extracted tarball inside a throwaway `PI_CODING_AGENT_DIR`.
+`test/release-version.test.ts` covers the release workflow's version resolver
+in `scripts/release-version.ts`.
+
 ```bash
 npm install
 npm test
 npm run typecheck
+npm run lint
 ```
 
 ## Release
 
+Releases run automatically through `.github/workflows/release.yml` on every
+push to `main`. `scripts/release-version.ts` resolves the version:
+
+- If `v<current-version>` is not tagged yet, it releases the version already in
+  `package.json` (this is what makes the first release `1.0.0`).
+- If that tag exists, it bumps the patch version, commits, and tags.
+
+The workflow then runs `npm publish --access public --provenance` and opens a
+GitHub release. Publishing is skipped when the version is already on the
+registry, so re-runs are safe, and the bot commit carries `[skip ci]` so it does
+not trigger itself. `prepublishOnly` re-runs tests and typecheck before any
+manual publish.
+
+The publish step needs an `NPM_TOKEN` repository secret: an npm automation
+token with publish rights for the `@lglen` scope. Add it under
+Settings -> Secrets and variables -> Actions. Provenance uses the workflow's
+`id-token: write` permission; [trusted publishing](https://docs.npmjs.com/trusted-publishers)
+can replace the token later.
+
+### Manual release
+
 ```bash
 npm login          # once per machine
-npm test && npm run typecheck
+npm test && npm run typecheck && npm run lint
 npm version patch  # or minor / major
 npm pack
 ```
 
-Smoke-test the tarball before publishing. Extract it somewhere temporary,
-install the extracted directory with a throwaway config dir, and confirm the
-breakdown box still appears:
+Smoke-test the tarball before publishing. `test/package.test.ts` automates this,
+but you can do it by hand with a throwaway config dir:
 
 ```bash
-tar xzf pi-parse-commands-*.tgz
-PI_CODING_AGENT_DIR=/tmp/pi-smoke pi install ./package
+tar xzf lglen-pi-parse-commands-*.tgz
+PI_CODING_AGENT_DIR=/tmp/pi-smoke pi install ./package --no-approve
 ```
 
-Then publish and tag:
+Then publish and push the tag:
 
 ```bash
-npm publish
+npm publish --access public
 git push --follow-tags
 ```
 
 The published tarball contains only `index.ts`, `README.md`, `CHANGELOG.md`,
-`LICENSE`, `docs/**/*.md`, and `package.json`. Tests and build config are
-excluded through the `files` field.
+`LICENSE`, `docs/**/*.md`, and `package.json`. Tests, workflows, scripts, and
+build config are excluded through the `files` field.
 
 ## Package identity
 
 The package is extracted from the in-tree example at
 `packages/coding-agent/examples/extensions/bash-command-breakdown/` in the pi
-repository and packaged under the name `pi-parse-commands`. Keep the package
-name, README installation commands, and changelog links aligned if the GitHub
-repository is renamed.
+repository and published to npm as `@lglen/pi-parse-commands` (repository
+`LaishGlenberg/pi-parse-commands`). Keep the package name, README installation
+commands, and changelog links aligned if either is renamed.

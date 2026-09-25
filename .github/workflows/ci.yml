@@ -30,11 +30,11 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Build
-        run: npm run build
-
       - name: Run tests
         run: npm test
 
       - name: Run Oxlint
         run: npm run lint
+
+      - name: Verify the publishable tarball
+        run: npm pack --dry-run
