@@ -38,10 +38,12 @@
 		"@earendil-works/pi-tui": "0.85.1",
 		"@types/node": "22.19.19",
 		"typescript": "^5.9.3",
+		"oxlint": "^1.85.0",
 		"vitest": "5.0.0"
 	},
 	"scripts": {
 		"test": "vitest --run",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+    	"lint": "oxlint --deny-warnings index.ts src scripts test"
 	}
 }

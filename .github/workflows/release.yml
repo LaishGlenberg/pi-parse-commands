@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+# Queue releases instead of cancelling them so a version bump is never lost.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Decide the next version
+        id: version
+        shell: bash
+        run: |
+          current=$(node -p "require('./package.json').version")
+          previous=""
+          if git cat-file -e "${{ github.event.before }}:package.json" 2>/dev/null; then
+            previous=$(git show "${{ github.event.before }}:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          fi
+
+          node scripts/release-version.ts --current "$current" --previous "$previous" >> "$GITHUB_OUTPUT"
+
+      - name: Bump the patch version
+        if: steps.version.outputs.needs_bump == 'true'
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
+
+      - name: Commit the version bump
+        if: steps.version.outputs.needs_bump == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore(release): ${{ steps.version.outputs.tag }} [skip ci]"
+          git push
+
+      - name: Create the tag if it does not exist
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists; leaving it in place."
+            exit 0
+          fi
+          git tag "$tag"
+          git push origin "$tag"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ github.event.repository.name }}/${{ steps.version.outputs.tag }} New Release
+          generate_release_notes: true
