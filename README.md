@@ -6,6 +6,8 @@
 
 A pi coding agent extension that lists every command in a chained bash tool call.
 
+![parsed commands](docs/parsing.png)
+
 ## Problem
 
 Agents often emit dense one-liners like:
