@@ -29,6 +29,8 @@
 	},
 	"files": [
 		"index.ts",
+		"config.ts",
+		"highlight.ts",
 		"docs/**/*.md",
 		"CHANGELOG.md",
 		"README.md",
@@ -41,17 +43,20 @@
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*"
 	},
+	"dependencies": {
+		"yaml": "^2.9.1"
+	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "0.85.1",
 		"@earendil-works/pi-tui": "0.85.1",
 		"@types/node": "22.19.19",
-		"typescript": "^5.9.3",
 		"oxlint": "^1.85.0",
+		"typescript": "^5.9.3",
 		"vitest": "5.0.0"
 	},
 	"scripts": {
 		"test": "vitest --run",
 		"typecheck": "tsc --noEmit",
-		"lint": "oxlint --deny-warnings index.ts scripts test"
+		"lint": "oxlint --deny-warnings index.ts config.ts highlight.ts scripts test"
 	}
 }

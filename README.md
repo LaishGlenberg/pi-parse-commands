@@ -22,7 +22,7 @@ $ cd /repo && rg -c "foo" out.json; rg -c "bar" out.json; rg -c "baz" out.json &
   5. node -e "..."
 ```
 
-The breakdown box uses a slightly different background color so it reads as an inset annotation rather than tool output.
+The breakdown box uses a slightly different background color so it reads as an inset annotation rather than tool output. Configured command names are highlighted in the breakdown and command line.
 
 ## What it splits on
 
@@ -53,6 +53,35 @@ pi install git:github.com/LaishGlenberg/pi-parse-commands
 ```
 
 Pi loads `index.ts` through the package manifest in `package.json`.
+
+## Command highlighting
+
+Create a config directory at `~/.pi/agent/extensions/pi-parse-commands/` and add one of
+`config.jsonc`, `config.json`, `config.yaml`, or `config.yml` (the first file found is
+used). JSONC supports comments and trailing commas:
+
+```jsonc
+{
+  // 0 = green, 1 = yellow, 2 = orange, 3 = red
+  "commands": {
+    "node": 1,
+    "rm": 3,
+    "rg": 2
+  }
+}
+```
+
+The YAML equivalent is:
+
+```yaml
+commands:
+  node: 1
+  rm: 3
+  rg: 2
+```
+
+Only the executable at the beginning of each parsed command is highlighted, so an
+argument that merely contains `node` is not colored. Invalid levels are ignored.
 
 ## Behavior
 

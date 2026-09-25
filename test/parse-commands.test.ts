@@ -64,12 +64,12 @@ const theme: FakeFg = {
 	dim: (text) => `~${text}~`,
 };
 
-function collectTool() {
+function collectTool(options: Parameters<typeof bashCommandBreakdown>[1] = { config: { commands: {} } }) {
 	const tools: any[] = [];
 	const pi = {
 		registerTool: (tool: any) => tools.push(tool),
 	} as unknown as ExtensionAPI;
-	bashCommandBreakdown(pi);
+	bashCommandBreakdown(pi, options);
 	const tool = tools.find((t) => t.name === "bash");
 	if (!tool) throw new Error("bash tool was not registered");
 	return tool;
@@ -297,6 +297,18 @@ describe("formatCommandBreakdown", () => {
 		expect(text).not.toContain(`cmd${MAX_BREAKDOWN_COMMANDS}`);
 		expect(text).toContain("and 7 more");
 	});
+
+	it("highlights configured command names with the default four-level palette", () => {
+		const text = formatCommandBreakdown(
+			parseShellCommands("green && yellow && orange && red"),
+			theme as any,
+			{ commands: { green: 0, yellow: 1, orange: 2, red: 3 } },
+		);
+		expect(text).toContain("{success:green}");
+		expect(text).toContain("{warning:yellow}");
+		expect(text).toContain("{mdHeading:orange}");
+		expect(text).toContain("{error:red}");
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -339,6 +351,13 @@ describe("pi-parse-commands extension", () => {
 		expect(output).toContain("tee log");
 		expect(output).toContain("{muted:1.}");
 		expect(output).toContain("{muted:3.}");
+	});
+
+	it("highlights configured command names in the call and breakdown", () => {
+		const output = renderCall(collectTool({ config: { commands: { node: 1 } } }), {
+			command: "echo before && node -e \\\"console.log('ok')\\\"",
+		});
+		expect(output).toContain("{warning:node}");
 	});
 
 	it("keeps separators out of the command text but shows the operator", () => {

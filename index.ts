@@ -19,7 +19,9 @@
  */
 
 import { createBashToolDefinition, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
-import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { loadCommandConfig, type CommandHighlightConfig } from "./config.ts";
+import { highlightCommandText, highlightShellCommand } from "./highlight.ts";
 
 /** Hard cap on how many parsed commands are drawn in the breakdown box. */
 export const MAX_BREAKDOWN_COMMANDS = 25;
@@ -152,12 +154,17 @@ export function splitShellCommands(command: string): string[] {
 }
 
 /** Render one line per command, numbering them and showing the trailing operator. */
-export function formatCommandBreakdown(segments: ShellCommandSegment[], theme: Theme): string {
+export function formatCommandBreakdown(
+	segments: ShellCommandSegment[],
+	theme: Theme,
+	config: CommandHighlightConfig = { commands: {} },
+): string {
 	const shown = segments.slice(0, MAX_BREAKDOWN_COMMANDS);
 	const lines = shown.map((segment, index) => {
 		const number = theme.fg("muted", `${index + 1}.`);
+		const command = highlightCommandText(segment.command, theme, config);
 		const operator = segment.operator ? ` ${theme.fg("dim", segment.operator)}` : "";
-		return `${number} ${segment.command}${operator}`;
+		return `${number} ${command}${operator}`;
 	});
 	if (segments.length > shown.length) {
 		lines.push(theme.fg("muted", `... and ${segments.length - shown.length} more`));
@@ -165,14 +172,28 @@ export function formatCommandBreakdown(segments: ShellCommandSegment[], theme: T
 	return lines.join("\n");
 }
 
-function formatShellCall(args: { command?: string; timeout?: number } | undefined, theme: Theme): string {
+function formatShellCall(
+	args: { command?: string; timeout?: number } | undefined,
+	theme: Theme,
+	config: CommandHighlightConfig,
+): string {
 	const command = typeof args?.command === "string" ? args.command : "";
 	const timeoutSuffix = args?.timeout ? theme.fg("muted", ` (timeout ${args.timeout}s)`) : "";
-	const display = command ? command : theme.fg("toolOutput", "...");
+	const display = command
+		? highlightShellCommand(command, parseShellCommands(command), theme, config)
+		: theme.fg("toolOutput", "...");
 	return theme.fg("toolTitle", theme.bold(`$ ${display}`)) + timeoutSuffix;
 }
 
-export default function bashCommandBreakdown(pi: ExtensionAPI): void {
+export interface BashCommandBreakdownOptions {
+	/** Use an explicit config in tests or embedding applications. */
+	config?: CommandHighlightConfig;
+	/** Override the directory searched for config.json(c) or config.yaml(yml). */
+	configDirectory?: string;
+}
+
+export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashCommandBreakdownOptions = {}): void {
+	const config = options.config ?? loadCommandConfig(options.configDirectory);
 	// Reuse the built-in implementation so execution and result rendering stay
 	// identical. Only renderCall is replaced.
 	const original = createBashToolDefinition(process.cwd());
@@ -201,12 +222,18 @@ export default function bashCommandBreakdown(pi: ExtensionAPI): void {
 
 			const container = (context.lastComponent as Container | undefined) ?? new Container();
 			container.clear();
-			container.addChild(new Text(formatShellCall(args, theme), 0, 0));
+			container.addChild(new Text(formatShellCall(args, theme, config), 0, 0));
 
 			const segments = parseShellCommands(typeof args?.command === "string" ? args.command : "");
 			if (segments.length > 1) {
-				const breakdown = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-				breakdown.addChild(new Text(formatCommandBreakdown(segments, theme), 0, 0));
+				// Text owns the background and horizontal padding so every rendered row,
+				// including the right edge, is filled at the exact parent width.
+				const breakdown = new Text(
+					formatCommandBreakdown(segments, theme, config),
+					1,
+					1,
+					(text) => theme.bg("customMessageBg", text),
+				);
 				container.addChild(new Spacer(1));
 				container.addChild(breakdown);
 			}

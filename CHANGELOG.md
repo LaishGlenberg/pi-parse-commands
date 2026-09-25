@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Highlight configured command names using JSON, JSONC, or YAML config files.
+- Add default green/yellow/orange/red levels (`0` through `3`).
+- Fill the multiline breakdown background through the full rendered width.
+
 ## [1.0.0] - 2026-09-25
 
 ### Added

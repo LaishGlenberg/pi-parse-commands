@@ -116,6 +116,8 @@ describe("npm pack output", () => {
 	it.each([
 		["package.json", "package.json"],
 		["index.ts", "index.ts"],
+		["config.ts", "config.ts"],
+		["highlight.ts", "highlight.ts"],
 		["README.md", "README.md"],
 		["CHANGELOG.md", "CHANGELOG.md"],
 		["LICENSE", "LICENSE"],

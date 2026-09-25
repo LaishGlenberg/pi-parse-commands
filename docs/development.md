@@ -43,15 +43,22 @@ text and the operator that terminates it (the last segment has no operator).
 ## Rendering
 
 `formatCommandBreakdown` numbers the segments, colors the number with `muted`,
-and appends the trailing operator with `dim`. At most `MAX_BREAKDOWN_COMMANDS`
-(25) lines are drawn; the remainder is summarized as `... and N more`.
+appends the trailing operator with `dim`, and highlights configured executable
+names. At most `MAX_BREAKDOWN_COMMANDS` (25) lines are drawn; the remainder is
+summarized as `... and N more`.
+
+`config.ts` loads the first `config.jsonc`, `config.json`, `config.yaml`, or
+`config.yml` found in `~/.pi/agent/extensions/pi-parse-commands/` (or the
+configured directory). JSONC comments/trailing commas and YAML are supported.
+Levels 0 through 3 map to the theme's green, yellow, orange, and red colors.
 
 `renderCall` reuses the container from `context.lastComponent` and clears it on
 each pass so re-renders do not duplicate the command. It also mirrors the
 built-in timing state (`startedAt` / `endedAt`) so the original `renderResult`
 can still display the elapsed time.
 
-The box uses `theme.bg("customMessageBg", ...)` to read as an inset annotation.
+The breakdown uses a padded `Text` component with `theme.bg("customMessageBg", ...)`
+so every row, including the right edge, is filled at the parent width.
 
 ## Testing
 
@@ -64,7 +71,9 @@ The box uses `theme.bg("customMessageBg", ...)` to read as an inset annotation.
    de-duplication, and timing state.
 
 The coding-agent package is mocked in the tests because the extension only
-needs a bash definition to wrap; its execution path is not exercised.
+needs a bash definition to wrap; its execution path is not exercised. Config
+parsing tests cover JSONC, YAML, invalid levels, and file precedence; the tool
+rendering tests cover configured highlighting.
 
 `test/package.test.ts` covers the publishable artifact: package metadata, the
 `npm pack` file list, and an end-to-end install that runs the real `pi` CLI
@@ -117,9 +126,10 @@ npm publish --access public
 git push --follow-tags
 ```
 
-The published tarball contains only `index.ts`, `README.md`, `CHANGELOG.md`,
-`LICENSE`, `docs/**/*.md`, and `package.json`. Tests, workflows, scripts, and
-build config are excluded through the `files` field.
+The published tarball contains the extension sources (`index.ts`, `config.ts`,
+`highlight.ts`), README/changelog/license, `docs/**/*.md`, and `package.json`.
+Tests, workflows, scripts, and build config are excluded through the `files`
+field.
 
 ## Package identity
 
