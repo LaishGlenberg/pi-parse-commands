@@ -46,6 +46,10 @@ import bashCommandBreakdown, {
 	parseShellCommands,
 	splitShellCommands,
 } from "../index.ts";
+import { DEFAULT_SEPARATORS, OPTIONAL_SEPARATORS } from "../config.ts";
+
+/** Every operator the parser understands, including the optional ones. */
+const ALL_SEPARATORS = [...DEFAULT_SEPARATORS, ...OPTIONAL_SEPARATORS];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -116,14 +120,14 @@ describe("parseShellCommands", () => {
 	});
 
 	it("splits on a single pipe", () => {
-		expect(parseShellCommands("cat f | grep x")).toEqual([
+		expect(parseShellCommands("cat f | grep x", ALL_SEPARATORS)).toEqual([
 			{ command: "cat f", operator: "|" },
 			{ command: "grep x" },
 		]);
 	});
 
 	it("splits on |&", () => {
-		expect(parseShellCommands("run |& tee log")).toEqual([
+		expect(parseShellCommands("run |& tee log", ALL_SEPARATORS)).toEqual([
 			{ command: "run", operator: "|&" },
 			{ command: "tee log" },
 		]);
@@ -138,10 +142,41 @@ describe("parseShellCommands", () => {
 	});
 
 	it("splits on background &", () => {
-		expect(parseShellCommands("sleep 1 & echo done")).toEqual([
+		expect(parseShellCommands("sleep 1 & echo done", ALL_SEPARATORS)).toEqual([
 			{ command: "sleep 1", operator: "&" },
 			{ command: "echo done" },
 		]);
+	});
+
+	it("does not split on optional operators by default", () => {
+		expect(parseShellCommands("cat f | grep x")).toEqual([{ command: "cat f | grep x" }]);
+		expect(parseShellCommands("run |& tee log")).toEqual([{ command: "run |& tee log" }]);
+		expect(parseShellCommands("sleep 1 & echo done")).toEqual([{ command: "sleep 1 & echo done" }]);
+	});
+
+	it("honors an explicit separator list", () => {
+		expect(parseShellCommands("a && b; c", ["&&"])).toEqual([
+			{ command: "a", operator: "&&" },
+			{ command: "b; c" },
+		]);
+	});
+
+	it("splits only on newlines when the separator list is empty", () => {
+		expect(parseShellCommands("a && b; c\nd", [])).toEqual([
+			{ command: "a && b; c" },
+			{ command: "d" },
+		]);
+	});
+
+	it("ignores unknown or duplicated separator entries", () => {
+		expect(parseShellCommands("a && b", ["&&", "&&", "&&&"])).toEqual([
+			{ command: "a", operator: "&&" },
+			{ command: "b" },
+		]);
+	});
+
+	it("keeps disabled multi-character operators intact", () => {
+		expect(parseShellCommands("a && b || c |& d", ["&", "|", ";"])).toEqual([{ command: "a && b || c |& d" }]);
 	});
 
 	it("splits on newlines and suppresses the operator", () => {
@@ -156,7 +191,7 @@ describe("parseShellCommands", () => {
 	});
 
 	it("handles a large mixed chain", () => {
-		expect(parseShellCommands("cd /tmp && rm -rf build; make all | tee log.txt || echo failed & wait")).toEqual([
+		expect(parseShellCommands("cd /tmp && rm -rf build; make all | tee log.txt || echo failed & wait", ALL_SEPARATORS)).toEqual([
 			{ command: "cd /tmp", operator: "&&" },
 			{ command: "rm -rf build", operator: ";" },
 			{ command: "make all", operator: "|" },
@@ -200,7 +235,7 @@ describe("parseShellCommands", () => {
 	});
 
 	it("does not split on 2>&1 redirections", () => {
-		expect(parseShellCommands("foo 2>&1 | bar")).toEqual([
+		expect(parseShellCommands("foo 2>&1 | bar", ALL_SEPARATORS)).toEqual([
 			{ command: "foo 2>&1", operator: "|" },
 			{ command: "bar" },
 		]);
@@ -215,7 +250,7 @@ describe("parseShellCommands", () => {
 	});
 
 	it("splits a trailing background marker after a redirection", () => {
-		expect(parseShellCommands("cmd > /dev/null 2>&1 &")).toEqual([
+		expect(parseShellCommands("cmd > /dev/null 2>&1 &", ALL_SEPARATORS)).toEqual([
 			{ command: "cmd > /dev/null 2>&1", operator: "&" },
 		]);
 	});
@@ -347,13 +382,22 @@ describe("pi-parse-commands extension", () => {
 	});
 
 	it("draws a breakdown box with a distinct background for chained commands", () => {
-		const output = renderCall(collectTool(), { command: "cd /tmp && make all | tee log" });
+		const output = renderCall(collectTool(), { command: "cd /tmp && make all; tee log" });
 		expect(output).toContain("bg=customMessageBg");
 		expect(output).toContain("cd /tmp");
 		expect(output).toContain("make all");
 		expect(output).toContain("tee log");
 		expect(output).toContain("{muted:1.}");
 		expect(output).toContain("{muted:3.}");
+	});
+
+	it("splits on optional separators when configured", () => {
+		const output = renderCall(collectTool({ config: { commands: {}, separators: ["&&", "|"] } }), {
+			command: "cat f | grep x && echo done",
+		});
+		expect(output).toContain("{muted:3.}");
+		expect(output).toContain("{dim:|}");
+		expect(output).toContain("{dim:&&}");
 	});
 
 	it("highlights configured command names in the call and breakdown", () => {

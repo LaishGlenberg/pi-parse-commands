@@ -6,13 +6,42 @@ import { parse as parseYaml } from "yaml";
 
 export type CommandColorLevel = 0 | 1 | 2 | 3;
 
+/** List operators enabled by default. Newlines always split regardless of this list. */
+export const DEFAULT_SEPARATORS: readonly string[] = ["&&", "||", ";"];
+
+/** Extra list operators a config may opt into. */
+export const OPTIONAL_SEPARATORS: readonly string[] = ["|&", "|", "&"];
+
+const KNOWN_SEPARATORS = new Set<string>([...DEFAULT_SEPARATORS, ...OPTIONAL_SEPARATORS]);
+
 export interface CommandHighlightConfig {
 	commands: Record<string, CommandColorLevel>;
+	/**
+	 * List operators that produce a new breakdown line.
+	 *
+	 * Defaults to `["&&", "||", ";"]`. Add any of the optional operators
+	 * `"|&"`, `"|"`, `"&"` to also split on those. Newlines always split.
+	 */
+	separators?: string[];
 }
 
 const CONFIG_DIRECTORY_NAME = "pi-parse-commands-config";
 const CONFIG_FILENAMES = ["config.jsonc", "config.json", "config.yaml", "config.yml"] as const;
-const EMPTY_CONFIG: CommandHighlightConfig = { commands: {} };
+const EMPTY_CONFIG: CommandHighlightConfig = { commands: {}, separators: [...DEFAULT_SEPARATORS] };
+
+/** Keep only recognized, de-duplicated operator names. Returns `undefined` for non-arrays. */
+export function normalizeSeparators(value: unknown): string[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+
+	const seen = new Set<string>();
+	const separators: string[] = [];
+	for (const entry of value) {
+		if (typeof entry !== "string" || !KNOWN_SEPARATORS.has(entry) || seen.has(entry)) continue;
+		seen.add(entry);
+		separators.push(entry);
+	}
+	return separators;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -92,14 +121,17 @@ function parseJsonc(content: string): unknown {
 }
 
 function normalizeConfig(value: unknown): CommandHighlightConfig {
-	if (!isRecord(value) || !isRecord(value.commands)) return { ...EMPTY_CONFIG, commands: {} };
-
 	const commands: Record<string, CommandColorLevel> = {};
-	for (const [command, level] of Object.entries(value.commands)) {
-		if (!command || typeof level !== "number" || !Number.isInteger(level) || level < 0 || level > 3) continue;
-		commands[command] = level as CommandColorLevel;
+	if (isRecord(value) && isRecord(value.commands)) {
+		for (const [command, level] of Object.entries(value.commands)) {
+			if (!command || typeof level !== "number" || !Number.isInteger(level) || level < 0 || level > 3) continue;
+			commands[command] = level as CommandColorLevel;
+		}
 	}
-	return { commands };
+
+	// An explicit empty list is honored (newline-only splitting); a missing list falls back to defaults.
+	const separators = normalizeSeparators(isRecord(value) ? value.separators : undefined) ?? [...DEFAULT_SEPARATORS];
+	return { commands, separators };
 }
 
 export function parseCommandConfigContent(content: string, filename = "config.jsonc"): CommandHighlightConfig {

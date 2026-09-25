@@ -20,7 +20,7 @@
 
 import { createBashToolDefinition, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
-import { loadCommandConfig, type CommandHighlightConfig } from "./config.ts";
+import { DEFAULT_SEPARATORS, loadCommandConfig, normalizeSeparators, type CommandHighlightConfig } from "./config.ts";
 import { highlightCommandText, highlightShellCommand } from "./highlight.ts";
 
 /** Hard cap on how many parsed commands are drawn in the breakdown box. */
@@ -29,30 +29,37 @@ export const MAX_BREAKDOWN_COMMANDS = 25;
 export interface ShellCommandSegment {
 	/** The command text, trimmed. */
 	command: string;
-	/** The list operator that terminates this command (`&&`, `||`, `|&`, `|`, `;`, `&`). Undefined for the last command. */
+	/** The list operator that terminates this command (`&&`, `||`, `;`, or an optional one). Undefined for the last command. */
 	operator?: string;
 }
 
 const OPERATOR_LABELS = new Set(["&&", "||", "|&", "|", ";", "&"]);
 
 /**
- * Detect a command-list operator at `index`.
+ * Detect a command-list operator at `index` when it is enabled.
  *
- * Returns the operator length, or `undefined` when the character is not a
- * separator. `&` requires extra care because it is also part of redirections
- * (`2>&1`, `>&2`, `&>file`) which must not be split.
+ * Returns the operator length, or `undefined` when the character is not an
+ * enabled separator. `&` requires extra care because it is also part of
+ * redirections (`2>&1`, `>&2`, `&>file`) which must not be split.
  */
-function matchOperatorLength(text: string, index: number): number | undefined {
+function matchOperatorLength(text: string, index: number, separators: ReadonlySet<string>): number | undefined {
 	const ch = text[index];
 	const next = text[index + 1];
 
-	if (ch === "&" && next === "&") return 2;
-	if (ch === "|" && next === "|") return 2;
-	if (ch === "|" && next === "&") return 2;
-	if (ch === "|") return 1;
-	if (ch === ";") return 1;
+	if (ch === "&" && next === "&") return separators.has("&&") ? 2 : undefined;
+	if (ch === "|" && next === "|") return separators.has("||") ? 2 : undefined;
+	if (ch === "|" && next === "&") return separators.has("|&") ? 2 : undefined;
+	if (ch === "|") {
+		// Do not split the tail of a disabled `||`.
+		if (text[index - 1] === "|") return undefined;
+		return separators.has("|") ? 1 : undefined;
+	}
+	if (ch === ";") return separators.has(";") ? 1 : undefined;
 	if (ch === "\n") return 1;
 	if (ch === "&") {
+		// Do not split the tail of a disabled `&&` or `|&`.
+		if (text[index - 1] === "&" || text[index - 1] === "|") return undefined;
+		if (!separators.has("&")) return undefined;
 		// `&>`, `&>>` are redirections, not background separators.
 		if (next === ">") return undefined;
 		// `2>&1`, `>&2`, `<&0` end with `&` preceded by a redirection.
@@ -74,11 +81,16 @@ function isCommentStart(text: string, index: number): boolean {
 /**
  * Split a shell command line into the individual commands that will run.
  *
- * Splits on `&&`, `||`, `|&`, `|`, `;`, `&`, and newlines. Separators inside
- * single/double quotes, escaped separators, comments, and redirections are
- * preserved as part of the surrounding command.
+ * Splits on the enabled `separators` (default `&&`, `||`, `;`) plus newlines.
+ * Pass optional operators such as `|&`, `|`, and `&` to split on those too.
+ * Separators inside single/double quotes, escaped separators, comments, and
+ * redirections are preserved as part of the surrounding command.
  */
-export function parseShellCommands(command: string): ShellCommandSegment[] {
+export function parseShellCommands(
+	command: string,
+	separators: readonly string[] = DEFAULT_SEPARATORS,
+): ShellCommandSegment[] {
+	const enabledSeparators = new Set(normalizeSeparators(separators) ?? DEFAULT_SEPARATORS);
 	const segments: ShellCommandSegment[] = [];
 	let current = "";
 	let inSingleQuote = false;
@@ -132,7 +144,7 @@ export function parseShellCommands(command: string): ShellCommandSegment[] {
 				continue;
 			}
 
-			const operatorLength = matchOperatorLength(command, i);
+			const operatorLength = matchOperatorLength(command, i, enabledSeparators);
 			if (operatorLength !== undefined) {
 				flush(command.slice(i, i + operatorLength));
 				i += operatorLength;
@@ -180,7 +192,7 @@ function formatShellCall(
 	const command = typeof args?.command === "string" ? args.command : "";
 	const timeoutSuffix = args?.timeout ? theme.fg("muted", ` (timeout ${args.timeout}s)`) : "";
 	const display = command
-		? highlightShellCommand(command, parseShellCommands(command), theme, config)
+		? highlightShellCommand(command, parseShellCommands(command, config.separators), theme, config)
 		: theme.fg("toolOutput", "...");
 	return theme.fg("toolTitle", theme.bold(`$ ${display}`)) + timeoutSuffix;
 }
@@ -224,7 +236,7 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 			container.clear();
 			container.addChild(new Text(formatShellCall(args, theme, config), 0, 0));
 
-			const segments = parseShellCommands(typeof args?.command === "string" ? args.command : "");
+			const segments = parseShellCommands(typeof args?.command === "string" ? args.command : "", config.separators);
 			if (segments.length > 1) {
 				// The parent ToolExecution box supplies the tool background. A nested
 				// theme.bg() resets that background, so restore it after each custom

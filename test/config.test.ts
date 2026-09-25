@@ -23,7 +23,7 @@ describe("command highlight config", () => {
 				}`,
 				"config.jsonc",
 			),
-		).toEqual({ commands: { node: 1, rm: 3 } });
+		).toEqual({ commands: { node: 1, rm: 3 }, separators: ["&&", "||", ";"] });
 	});
 
 	it("parses YAML configs", () => {
@@ -32,13 +32,33 @@ describe("command highlight config", () => {
 				"commands:\n  node: 1\n  rg: 2\n",
 				"config.yaml",
 			),
-		).toEqual({ commands: { node: 1, rg: 2 } });
+		).toEqual({ commands: { node: 1, rg: 2 }, separators: ["&&", "||", ";"] });
 	});
 
 	it("ignores invalid color levels", () => {
 		expect(
 			parseCommandConfigContent('{"commands":{"negative":-1,"fraction":1.5,"tooHigh":4,"ok":0}}'),
-		).toEqual({ commands: { ok: 0 } });
+		).toEqual({ commands: { ok: 0 }, separators: ["&&", "||", ";"] });
+	});
+
+	it("parses a custom separator list", () => {
+		expect(
+			parseCommandConfigContent('{"separators":["&&","|","&"]}'),
+		).toEqual({ commands: {}, separators: ["&&", "|", "&"] });
+	});
+
+	it("drops unknown and duplicate separators", () => {
+		expect(
+			parseCommandConfigContent('{"separators":["&&","&&","&&&","|"]}'),
+		).toEqual({ commands: {}, separators: ["&&", "|"] });
+	});
+
+	it("honors an explicit empty separator list", () => {
+		expect(parseCommandConfigContent('{"separators":[]}')).toEqual({ commands: {}, separators: [] });
+	});
+
+	it("falls back to the default separators for non-array values", () => {
+		expect(parseCommandConfigContent('{"separators":"|"}')).toEqual({ commands: {}, separators: ["&&", "||", ";"] });
 	});
 
 	it("loads the first supported config file from a directory", () => {
@@ -46,6 +66,6 @@ describe("command highlight config", () => {
 		temporaryDirectories.push(directory);
 		writeFileSync(join(directory, "config.jsonc"), '{"commands":{"node":1}}');
 		writeFileSync(join(directory, "config.yaml"), "commands:\n  node: 3\n");
-		expect(loadCommandConfig(directory)).toEqual({ commands: { node: 1 } });
+		expect(loadCommandConfig(directory)).toEqual({ commands: { node: 1 }, separators: ["&&", "||", ";"] });
 	});
 });

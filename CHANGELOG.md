@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Highlight configured command names using JSON, JSONC, or YAML config files.
 - Add default green/yellow/orange/red levels (`0` through `3`).
 - Fill the multiline breakdown background through the full rendered width.
+- Split on the main command-list operators (`&&`, `||`, `;`) by default and make
+  the pipe/background operators (`|&`, `|`, `&`) opt-in through a `separators`
+  config option.
 
 ## [1.0.0] - 2026-09-25
 
