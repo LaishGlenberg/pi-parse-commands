@@ -48,7 +48,7 @@ names. At most `MAX_BREAKDOWN_COMMANDS` (25) lines are drawn; the remainder is
 summarized as `... and N more`.
 
 `config.ts` loads the first `config.jsonc`, `config.json`, `config.yaml`, or
-`config.yml` found in `~/.pi/agent/extensions/pi-parse-commands/` (or the
+`config.yml` found in `~/.pi/agent/extensions/pi-parse-commands-config/` (or the
 configured directory). JSONC comments/trailing commas and YAML are supported.
 Levels 0 through 3 map to the theme's green, yellow, orange, and red colors.
 

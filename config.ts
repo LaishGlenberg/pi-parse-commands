@@ -10,6 +10,7 @@ export interface CommandHighlightConfig {
 	commands: Record<string, CommandColorLevel>;
 }
 
+const CONFIG_DIRECTORY_NAME = "pi-parse-commands-config";
 const CONFIG_FILENAMES = ["config.jsonc", "config.json", "config.yaml", "config.yml"] as const;
 const EMPTY_CONFIG: CommandHighlightConfig = { commands: {} };
 
@@ -119,11 +120,13 @@ function defaultConfigDirectories(): string[] {
 	const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 	const agentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent");
 	return [
-		path.join(agentDirectory, "extensions", "pi-parse-commands"),
-		path.join(os.homedir(), ".pi", "agent", "extensions", "pi-parse-commands"),
-		moduleDirectory,
-		path.join(moduleDirectory, "pi-parse-commands"),
-		path.join(process.cwd(), "pi-parse-commands"),
+		path.join(agentDirectory, "extensions", CONFIG_DIRECTORY_NAME),
+		path.join(os.homedir(), ".pi", "agent", "extensions", CONFIG_DIRECTORY_NAME),
+		// Also support a sibling config directory when the extension is checked out locally
+		// or installed as a folder under an extensions directory.
+		path.join(moduleDirectory, "..", CONFIG_DIRECTORY_NAME),
+		path.join(moduleDirectory, CONFIG_DIRECTORY_NAME),
+		path.join(process.cwd(), CONFIG_DIRECTORY_NAME),
 	];
 }
 

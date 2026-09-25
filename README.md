@@ -56,7 +56,7 @@ Pi loads `index.ts` through the package manifest in `package.json`.
 
 ## Command highlighting
 
-Create a config directory at `~/.pi/agent/extensions/pi-parse-commands/` and add one of
+Create a config directory at `~/.pi/agent/extensions/pi-parse-commands-config/` and add one of
 `config.jsonc`, `config.json`, `config.yaml`, or `config.yml` (the first file found is
 used). JSONC supports comments and trailing commas:
 
