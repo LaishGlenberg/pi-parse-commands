@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add package metadata tests plus an end-to-end install smoke test that packs the
   tarball and installs it with the `pi` CLI.
 - Publish to npm as `@lglen/pi-parse-commands` with public access.
-- Automate releases: resolve the version, tag, and publish to npm with provenance.
+- Automate the GitHub release: resolve the version, bump if needed, and tag.
 - Add an MIT license, package metadata, and a `typecheck` script.
 
 [Unreleased]: https://github.com/LaishGlenberg/pi-parse-commands/compare/v1.0.0...HEAD

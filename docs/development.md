@@ -88,19 +88,12 @@ push to `main`. `scripts/release-version.ts` resolves the version:
   `package.json` (this is what makes the first release `1.0.0`).
 - If that tag exists, it bumps the patch version, commits, and tags.
 
-The workflow then runs `npm publish --access public --provenance` and opens a
-GitHub release. Publishing is skipped when the version is already on the
-registry, so re-runs are safe, and the bot commit carries `[skip ci]` so it does
-not trigger itself. `prepublishOnly` re-runs tests and typecheck before any
-manual publish.
+The workflow opens a GitHub release with generated notes; it does not publish
+to npm. The bot commit carries `[skip ci]` so it does not trigger itself.
 
-The publish step needs an `NPM_TOKEN` repository secret: an npm automation
-token with publish rights for the `@lglen` scope. Add it under
-Settings -> Secrets and variables -> Actions. Provenance uses the workflow's
-`id-token: write` permission; [trusted publishing](https://docs.npmjs.com/trusted-publishers)
-can replace the token later.
+### Manual publish
 
-### Manual release
+Publishing to npm is manual:
 
 ```bash
 npm login          # once per machine

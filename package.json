@@ -47,7 +47,6 @@
 	"scripts": {
 		"test": "vitest --run",
 		"typecheck": "tsc --noEmit",
-		"lint": "oxlint --deny-warnings index.ts scripts test",
-		"prepublishOnly": "npm test && npm run typecheck"
+		"lint": "oxlint --deny-warnings index.ts scripts test"
 	}
 }
