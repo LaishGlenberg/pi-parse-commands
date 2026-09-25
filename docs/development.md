@@ -57,8 +57,10 @@ each pass so re-renders do not duplicate the command. It also mirrors the
 built-in timing state (`startedAt` / `endedAt`) so the original `renderResult`
 can still display the elapsed time.
 
-The breakdown uses a padded `Text` component with `theme.bg("customMessageBg", ...)`
-so every row, including the right edge, is filled at the parent width.
+The breakdown uses a padded `Text` component with `theme.bg("customMessageBg", ...)`.
+It renders one cell wider than its child viewport because the built-in tool
+renderer adds a one-cell right padding; this keeps the inset background flush
+with the terminal's right edge.
 
 ## Testing
 

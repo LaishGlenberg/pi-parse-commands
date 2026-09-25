@@ -26,6 +26,17 @@ import { highlightCommandText, highlightShellCommand } from "./highlight.ts";
 /** Hard cap on how many parsed commands are drawn in the breakdown box. */
 export const MAX_BREAKDOWN_COMMANDS = 25;
 
+/**
+ * ToolExecutionComponent wraps renderer output in a one-cell-padded Box. Render
+ * the inset one cell wider so its background reaches the terminal's right edge
+ * instead of exposing that wrapper's background as a black strip.
+ */
+class FullWidthBreakdown extends Text {
+	override render(width: number): string[] {
+		return super.render(width + 1);
+	}
+}
+
 export interface ShellCommandSegment {
 	/** The command text, trimmed. */
 	command: string;
@@ -228,7 +239,7 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 			if (segments.length > 1) {
 				// Text owns the background and horizontal padding so every rendered row,
 				// including the right edge, is filled at the exact parent width.
-				const breakdown = new Text(
+				const breakdown = new FullWidthBreakdown(
 					formatCommandBreakdown(segments, theme, config),
 					1,
 					1,
