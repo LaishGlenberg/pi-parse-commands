@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split on the main command-list operators (`&&`, `||`, `;`) by default and make
   the pipe/background operators (`|&`, `|`, `&`) opt-in through a `separators`
   config option.
+- Expand config tests to cover file loading, filename precedence, malformed
+  JSON/YAML fallback, scanner edge cases, and default discovery through
+  `PI_CODING_AGENT_DIR`/`HOME`.
 
 ## [1.0.0] - 2026-09-25
 
