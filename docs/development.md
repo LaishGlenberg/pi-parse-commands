@@ -81,8 +81,11 @@ would appear as a black strip.
 
 The coding-agent package is mocked in the tests because the extension only
 needs a bash definition to wrap; its execution path is not exercised. Config
-parsing tests cover JSONC, YAML, invalid levels, and file precedence; the tool
-rendering tests cover configured highlighting.
+tests cover JSONC/YAML parsing, scanner edge cases (block comments, comment
+markers inside strings, trailing commas), level/separator normalization, file
+precedence (`jsonc` > `json` > `yaml` > `yml`), malformed-file fallback, and
+default discovery through `PI_CODING_AGENT_DIR`/`HOME`; the tool rendering
+tests cover configured highlighting.
 
 `test/package.test.ts` covers the publishable artifact: package metadata, the
 `npm pack` file list, and an end-to-end install that runs the real `pi` CLI
