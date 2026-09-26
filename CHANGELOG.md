@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-26
+
 ### Added
 
 - Highlight configured command names using JSON, JSONC, or YAML config files.
@@ -15,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split on the main command-list operators (`&&`, `||`, `;`) by default and make
   the pipe/background operators (`|&`, `|`, `&`) opt-in through a `separators`
   config option.
+- Expand config tests to cover file loading, filename precedence, malformed
+  JSON/YAML fallback, scanner edge cases, and default discovery through
+  `PI_CODING_AGENT_DIR`/`HOME`.
 
 ## [1.0.0] - 2026-09-25
 
@@ -32,5 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automate the GitHub release: resolve the version, bump if needed, and tag.
 - Add an MIT license, package metadata, and a `typecheck` script.
 
-[Unreleased]: https://github.com/LaishGlenberg/pi-parse-commands/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/LaishGlenberg/pi-parse-commands/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/LaishGlenberg/pi-parse-commands/releases/tag/v1.1.0
 [1.0.0]: https://github.com/LaishGlenberg/pi-parse-commands/releases/tag/v1.0.0
