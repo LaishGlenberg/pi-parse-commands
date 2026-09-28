@@ -290,6 +290,19 @@ describe("config migration", () => {
 		expect(parseCommandConfigContent(readFileSync(configPath, "utf8"), configPath)).toEqual(emptyConfig());
 	});
 
+	it("reuses an existing trailing comma instead of adding a second one", () => {
+		const directory = createTemporaryDirectory();
+		const configPath = join(directory, "config.jsonc");
+		const original = '{"commands": {},}';
+		writeFileSync(configPath, original);
+
+		expect(migrateCommandConfig(directory)?.added).toEqual(["separators"]);
+		const migrated = readFileSync(configPath, "utf8");
+		expect(migrated).not.toContain(",,");
+		expect(parseCommandConfigContent(migrated, configPath)).toEqual(emptyConfig());
+		expect(readFileSync(`${configPath}.bak`, "utf8")).toBe(original);
+	});
+
 	it("appends the option to a yaml config", () => {
 		const directory = createTemporaryDirectory();
 		const configPath = join(directory, "config.yaml");

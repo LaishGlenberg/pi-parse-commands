@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Upgrade an existing config on load when it predates a new top-level option:
   insert the option with its default, preserve comments, and write a `.bak`
-  backup first. Idempotent, never creates a config, and skips malformed files.
+  backup first. Migration runs before the config is loaded, reuses an existing
+  trailing comma instead of emitting a second one, is idempotent, never creates
+  a config, and skips malformed files.
 
 ## [1.1.0] - 2026-09-26
 

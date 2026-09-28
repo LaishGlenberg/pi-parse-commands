@@ -205,10 +205,11 @@ export interface BashCommandBreakdownOptions {
 }
 
 export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashCommandBreakdownOptions = {}): void {
-	const config = options.config ?? loadCommandConfig(options.configDirectory);
 	// Keep an existing personal config in sync with options added by newer
-	// versions (e.g. `separators`). Skipped when a config is injected directly.
+	// versions (e.g. `separators`) before loading it, so a migrated option takes
+	// effect on this load. Skipped when a config is injected directly.
 	if (!options.config) migrateCommandConfig(options.configDirectory);
+	const config = options.config ?? loadCommandConfig(options.configDirectory);
 	// Reuse the built-in implementation so execution and result rendering stay
 	// identical. Only renderCall is replaced.
 	const original = createBashToolDefinition(process.cwd());

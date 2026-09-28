@@ -312,9 +312,11 @@ function insertJsonFeatures(content: string, features: readonly ConfigFeature[])
 
 	const lines = features.map((feature) => `  ${JSON.stringify(feature.key)}: ${JSON.stringify(feature.defaultValue)}`);
 	const isEmpty = bounds.lastContent <= bounds.open;
-	// An empty object needs a leading newline and none of the trailing whitespace
-	// handling; a populated object reuses whatever precedes the root brace.
-	const insertion = `${isEmpty ? "" : ","}\n${lines.join(",\n")}${isEmpty ? "\n" : ""}`;
+	// A JSONC object may already end with a trailing comma. Reuse it instead of
+	// emitting a second one, and skip the separator entirely for an empty object.
+	const hasTrailingComma = content[bounds.lastContent] === ",";
+	const separator = isEmpty || hasTrailingComma ? "" : ",";
+	const insertion = `${separator}\n${lines.join(",\n")}${isEmpty ? "\n" : ""}`;
 	const insertAt = bounds.lastContent + 1;
 	return content.slice(0, insertAt) + insertion + content.slice(insertAt);
 }
