@@ -116,6 +116,9 @@ config, so it only runs on demand:
 npm run test:e2e
 ```
 
+Set `LOG=1` (or run `npm run test:e2e:log`) to print each `pi` command and its
+captured stdout/stderr while the test runs.
+
 ```bash
 npm install
 npm test

@@ -3,7 +3,7 @@
  *
  * Run with:
  *
- *   npm run test:e2e
+ *   npm run test:e2e          # set LOG=1 for verbose command output
  *
  * Unlike `test/package.test.ts` (which installs into an isolated
  * `PI_CODING_AGENT_DIR`), this test exercises the *real* agent directory and
@@ -55,18 +55,31 @@ const smokeArgs = [
 	"run some chained bash commands that make use of &&, ||, and ;. Then finish and give your output, include 'SUCCESS' at the end of your message. Run commands quickly, dont dilly dally.",
 ];
 
+const LOG = ["1", "true", "yes"].includes((process.env.LOG ?? "").toLowerCase());
+
 interface Settings {
 	packages?: unknown[];
 	[key: string]: unknown;
 }
 
-function runPi(args: string[], timeout: number) {
-	return spawnSync(PI_BIN, args, {
+function log(message: string): void {
+	if (LOG) process.stderr.write(`[e2e] ${message}\n`);
+}
+
+function runPi(label: string, args: string[], timeout: number) {
+	log(`$ ${PI_BIN} ${args.join(" ")}`);
+	const result = spawnSync(PI_BIN, args, {
 		encoding: "utf8",
 		timeout,
 		maxBuffer: 16 * 1024 * 1024,
 		env: { ...process.env },
 	});
+	if (LOG) {
+		log(`${label}: ${result.error ? `error: ${result.error.message}` : `status: ${result.status}`}`);
+		if (result.stdout) log(`--- ${label} stdout ---\n${result.stdout.trimEnd()}`);
+		if (result.stderr) log(`--- ${label} stderr ---\n${result.stderr.trimEnd()}`);
+	}
+	return result;
 }
 
 function formatResult(result: ReturnType<typeof runPi>): string {
@@ -90,23 +103,30 @@ function isPackageConfigured(): boolean {
 
 describe("e2e: install, load, and uninstall from npm", () => {
 	it("installs the published package from a clean slate, runs the smoke prompt, then uninstalls", () => {
+		log(`agent dir:   ${agentDir}`);
+		log(`settings:    ${settingsPath}`);
+		log(`extension:   ${installedExtensionDir}`);
+
 		// Clean slate: a previous failed run may have left the package installed.
-		if (isPackageConfigured()) {
-			const cleanup = runPi(["uninstall", packageSource], 120_000);
+		const alreadyInstalled = isPackageConfigured();
+		log(`package already installed: ${alreadyInstalled}`);
+		if (alreadyInstalled) {
+			const cleanup = runPi("pre-clean uninstall", ["uninstall", packageSource], 120_000);
 			expect(cleanup.status, `pre-clean uninstall failed\n${formatResult(cleanup)}`).toBe(0);
 		}
 
-		const install = runPi(["install", packageSource], 180_000);
+		const install = runPi("install", ["install", packageSource], 180_000);
 		expect(install.status, `pi install failed\n${formatResult(install)}`).toBe(0);
 		expect(isPackageConfigured()).toBe(true);
 
-		const smoke = runPi(smokeArgs, 240_000);
+		const smoke = runPi("smoke", smokeArgs, 240_000);
 		const timedOut = (smoke.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
 		const output = formatResult(smoke);
 		const succeeded = !timedOut && smoke.status === 0 && (smoke.stdout ?? "").includes("SUCCESS");
+		log(`smoke succeeded: ${succeeded}`);
 
 		if (succeeded) {
-			const uninstall = runPi(["uninstall", packageSource], 120_000);
+			const uninstall = runPi("uninstall", ["uninstall", packageSource], 120_000);
 			expect(uninstall.status, `pi uninstall failed\n${formatResult(uninstall)}`).toBe(0);
 			expect(isPackageConfigured()).toBe(false);
 		}
