@@ -105,14 +105,15 @@ against the extracted tarball inside a throwaway `PI_CODING_AGENT_DIR`.
 in `scripts/release-version.ts`.
 
 `test/e2e.test.ts` is an opt-in test that exercises the real agent directory
-instead of a throwaway one: it runs `pi install npm:@lglen/pi-parse-commands`,
-repoints `settings.json` from the local symlink to the npm-installed copy, runs
-a smoke prompt that must print `SUCCESS`, then uninstalls and restores the
-original settings. It mutates `~/.pi/agent/settings.json` and calls a real
-model, so it is skipped unless `PI_E2E=1`:
+instead of a throwaway one: it clears any existing install, runs
+`pi install npm:@lglen/pi-parse-commands`, runs a smoke prompt that explicitly
+loads the npm copy and must print `SUCCESS`, then uninstalls the package. The
+expected resting state is "package not installed; only the local symlink is
+configured". It calls a real model and is excluded from the default vitest
+config, so it only runs on demand:
 
 ```bash
-PI_E2E=1 npm run test:e2e
+npm run test:e2e
 ```
 
 ```bash

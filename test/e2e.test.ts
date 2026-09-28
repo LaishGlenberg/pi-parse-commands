@@ -3,43 +3,40 @@
  *
  * Run with:
  *
- *   PI_E2E=1 npm run test:e2e
+ *   npm run test:e2e
  *
  * Unlike `test/package.test.ts` (which installs into an isolated
- * `PI_CODING_AGENT_DIR`), this test exercises the *real* agent directory:
+ * `PI_CODING_AGENT_DIR`), this test exercises the *real* agent directory and
+ * the published npm package:
  *
- *   1. `pi install npm:@lglen/pi-parse-commands`
- *   2. Repoint `settings.json` away from the local symlinked checkout
- *      (`extensions/pi-parse-commands`) and at the npm-installed copy under
- *      `<agentDir>/npm/node_modules/@lglen/pi-parse-commands`.
- *   3. Run a smoke prompt that explicitly loads the installed extension and
- *      must finish with `SUCCESS`.
- *   4. On success, `pi uninstall npm:@lglen/pi-parse-commands` and restore the
- *      original `settings.json`.
+ *   1. If the package is already installed, uninstall it for a clean slate.
+ *   2. `pi install npm:@lglen/pi-parse-commands`.
+ *   3. Run a smoke prompt that explicitly loads the installed extension with
+ *      `--extension <agentDir>/npm/node_modules/@lglen/pi-parse-commands`. The
+ *      command uses `-ne`, so nothing but that explicit path is loaded; the
+ *      local symlink (and any configured package) is ignored.
+ *   4. Fail if the command errors, times out, or does not print `SUCCESS`.
+ *   5. On success, `pi uninstall npm:@lglen/pi-parse-commands`.
  *
- * It mutates `~/.pi/agent/settings.json` and calls a real model, so it is
- * skipped unless `PI_E2E=1`. The original file is snapshotted first and
- * restored in `afterAll`; a `.e2e-backup` copy is written as a crash-safety
- * net and removed after a clean restore.
+ * The expected resting state is "package not installed; only the symlink is
+ * configured". Nothing is backed up or edited by hand: install/uninstall are
+ * symmetric, and a leftover install from a previous failed run is removed in
+ * step 1. It calls a real model and is excluded from the default vitest config,
+ * so it only runs through `npm run test:e2e`.
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
-const ENABLED = process.env.PI_E2E === "1";
+import { describe, expect, it } from "vitest";
 
 const PI_BIN = process.env.PI_BIN ?? "pi";
 const agentDir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
 const settingsPath = join(agentDir, "settings.json");
-const backupPath = `${settingsPath}.e2e-backup`;
 
 const packageSource = "npm:@lglen/pi-parse-commands";
 const installedExtensionDir = join(agentDir, "npm", "node_modules", "@lglen", "pi-parse-commands");
-const symlinkEntry = "+extensions/pi-parse-commands/index.ts";
-const npmEntry = "+npm/node_modules/@lglen/pi-parse-commands/index.ts";
 
 const smokeArgs = [
 	"-ns",
@@ -59,7 +56,6 @@ const smokeArgs = [
 ];
 
 interface Settings {
-	extensions?: string[];
 	packages?: unknown[];
 	[key: string]: unknown;
 }
@@ -84,49 +80,25 @@ function formatResult(result: ReturnType<typeof runPi>): string {
 		.join("\n");
 }
 
-function readSettings(): Settings {
-	return JSON.parse(readFileSync(settingsPath, "utf8")) as Settings;
+function isPackageConfigured(): boolean {
+	if (!existsSync(settingsPath)) return false;
+	const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Settings;
+	return (settings.packages ?? []).some((entry) =>
+		typeof entry === "string" ? entry === packageSource : (entry as { source?: string }).source === packageSource,
+	);
 }
 
-function pointSettingsAtNpmCopy(): void {
-	const settings = readSettings();
-	const extensions = Array.isArray(settings.extensions) ? [...settings.extensions] : [];
-	const index = extensions.indexOf(symlinkEntry);
-	if (index >= 0) extensions[index] = npmEntry;
-	else if (!extensions.includes(npmEntry)) extensions.push(npmEntry);
-	settings.extensions = extensions;
-	writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-}
-
-describe.skipIf(!ENABLED)("e2e: install, load, and uninstall from npm", () => {
-	let originalSettings: string | null = null;
-
-	beforeAll(() => {
-		if (!existsSync(settingsPath)) {
-			throw new Error(`settings file not found: ${settingsPath}`);
+describe("e2e: install, load, and uninstall from npm", () => {
+	it("installs the published package from a clean slate, runs the smoke prompt, then uninstalls", () => {
+		// Clean slate: a previous failed run may have left the package installed.
+		if (isPackageConfigured()) {
+			const cleanup = runPi(["uninstall", packageSource], 120_000);
+			expect(cleanup.status, `pre-clean uninstall failed\n${formatResult(cleanup)}`).toBe(0);
 		}
-		originalSettings = readFileSync(settingsPath, "utf8");
-		writeFileSync(backupPath, originalSettings, { mode: 0o600 });
-	});
 
-	afterAll(() => {
-		if (originalSettings !== null) {
-			writeFileSync(settingsPath, originalSettings);
-		}
-		if (existsSync(backupPath)) {
-			rmSync(backupPath, { force: true });
-		}
-	});
-
-	it("installs the published package, runs the smoke prompt, then uninstalls and restores settings", () => {
 		const install = runPi(["install", packageSource], 180_000);
 		expect(install.status, `pi install failed\n${formatResult(install)}`).toBe(0);
-
-		// The npm install must have left the settings pointing at the package.
-		const installedSettings = readSettings();
-		expect(installedSettings.packages ?? []).toContain(packageSource);
-
-		pointSettingsAtNpmCopy();
+		expect(isPackageConfigured()).toBe(true);
 
 		const smoke = runPi(smokeArgs, 240_000);
 		const timedOut = (smoke.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
@@ -136,6 +108,7 @@ describe.skipIf(!ENABLED)("e2e: install, load, and uninstall from npm", () => {
 		if (succeeded) {
 			const uninstall = runPi(["uninstall", packageSource], 120_000);
 			expect(uninstall.status, `pi uninstall failed\n${formatResult(uninstall)}`).toBe(0);
+			expect(isPackageConfigured()).toBe(false);
 		}
 
 		expect(timedOut, `smoke command timed out\n${output}`).toBe(false);
