@@ -96,6 +96,12 @@ commands:
 separators: ["&&", "||", ";"]
 ```
 
+When a newer version adds a top-level option, the extension upgrades an existing config on
+load: it inserts the option with its default in place (keeping comments), writes a
+`config.jsonc.bak` (or matching `.bak`) backup first, and does nothing when the config is
+already current. Configs are never created automatically, and a malformed config is left
+untouched.
+
 ## Behavior
 
 The extension overrides only the rendering of the built-in `bash` tool. Execution, output truncation, timing, and the expanded result view are unchanged.

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Upgrade an existing config on load when it predates a new top-level option:
+  insert the option with its default, preserve comments, and write a `.bak`
+  backup first. Idempotent, never creates a config, and skips malformed files.
+
 ## [1.1.0] - 2026-09-26
 
 ### Added

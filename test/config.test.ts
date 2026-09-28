@@ -1,8 +1,13 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadCommandConfig, parseCommandConfigContent } from "../config.ts";
+import {
+	findMissingConfigFeatures,
+	loadCommandConfig,
+	migrateCommandConfig,
+	parseCommandConfigContent,
+} from "../config.ts";
 
 const DEFAULT_SEPARATORS = ["&&", "||", ";"];
 
@@ -242,5 +247,85 @@ describe("default config directories", () => {
 		mkdirSync(configDirectory, { recursive: true });
 		writeFileSync(join(configDirectory, "config.yaml"), "commands:\n  rg: 2\n");
 		expect(loadCommandConfig()).toEqual({ commands: { rg: 2 }, separators: ["&&", "||", ";"] });
+	});
+});
+
+describe("config migration", () => {
+	it("adds missing options to a jsonc config and preserves comments", () => {
+		const directory = createTemporaryDirectory();
+		const configPath = join(directory, "config.jsonc");
+		const original = `{\n  // keep me\n  "commands": {\n    "node": 1\n  }\n}\n`;
+		writeFileSync(configPath, original);
+
+		expect(migrateCommandConfig(directory)).toEqual({
+			path: configPath,
+			backupPath: `${configPath}.bak`,
+			added: ["separators"],
+		});
+
+		const migrated = readFileSync(configPath, "utf8");
+		expect(migrated).toContain("// keep me");
+		expect(migrated).toContain('"separators": ["&&","||",";"]');
+		expect(loadCommandConfig(directory).separators).toEqual(["&&", "||", ";"]);
+		expect(readFileSync(`${configPath}.bak`, "utf8")).toBe(original);
+	});
+
+	it("is idempotent once the option is present", () => {
+		const directory = createTemporaryDirectory();
+		const configPath = join(directory, "config.jsonc");
+		const original = '{"commands":{},"separators":["&&"]}';
+		writeFileSync(configPath, original);
+
+		expect(migrateCommandConfig(directory)).toBeUndefined();
+		expect(readFileSync(configPath, "utf8")).toBe(original);
+		expect(existsSync(`${configPath}.bak`)).toBe(false);
+	});
+
+	it("migrates an empty object", () => {
+		const directory = createTemporaryDirectory();
+		const configPath = join(directory, "config.jsonc");
+		writeFileSync(configPath, "{}");
+
+		expect(migrateCommandConfig(directory)?.added).toEqual(["separators"]);
+		expect(parseCommandConfigContent(readFileSync(configPath, "utf8"), configPath)).toEqual(emptyConfig());
+	});
+
+	it("appends the option to a yaml config", () => {
+		const directory = createTemporaryDirectory();
+		const configPath = join(directory, "config.yaml");
+		writeFileSync(configPath, "# keep me\ncommands:\n  node: 1\n");
+
+		expect(migrateCommandConfig(directory)?.added).toEqual(["separators"]);
+		const migrated = readFileSync(configPath, "utf8");
+		expect(migrated).toContain("# keep me");
+		expect(parseCommandConfigContent(migrated, configPath)).toEqual({
+			commands: { node: 1 },
+			separators: ["&&", "||", ";"],
+		});
+	});
+
+	it("does nothing when no config exists", () => {
+		const directory = createTemporaryDirectory();
+		expect(migrateCommandConfig(directory)).toBeUndefined();
+		expect(existsSync(join(directory, "config.jsonc"))).toBe(false);
+	});
+
+	it("leaves a malformed config untouched and warns", () => {
+		const directory = createTemporaryDirectory();
+		const configPath = join(directory, "config.jsonc");
+		const original = "{ not valid";
+		writeFileSync(configPath, original);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		expect(migrateCommandConfig(directory)).toBeUndefined();
+		expect(readFileSync(configPath, "utf8")).toBe(original);
+		expect(existsSync(`${configPath}.bak`)).toBe(false);
+		expect(warn).toHaveBeenCalledOnce();
+	});
+
+	it("reports missing features without touching the file", () => {
+		expect(findMissingConfigFeatures('{"commands":{}}')).toEqual(["separators"]);
+		expect(findMissingConfigFeatures('{"separators":["&&"]}')).toEqual([]);
+		expect(findMissingConfigFeatures("[1,2,3]")).toEqual([]);
 	});
 });

@@ -12,6 +12,9 @@
  * definition to wrap; its execution path is irrelevant here.
  */
 
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Box } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
@@ -474,5 +477,17 @@ describe("pi-parse-commands extension", () => {
 		const state: any = {};
 		tool.renderCall({ command: "a && b" }, theme, { state, executionStarted: false });
 		expect(state.startedAt).toBeUndefined();
+	});
+
+	it("migrates a stale config directory when no config is injected", () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-migrate-"));
+		try {
+			const configPath = join(directory, "config.jsonc");
+			writeFileSync(configPath, '{"commands":{"node":1}}');
+			collectTool({ configDirectory: directory });
+			expect(readFileSync(configPath, "utf8")).toContain('"separators"');
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 });
