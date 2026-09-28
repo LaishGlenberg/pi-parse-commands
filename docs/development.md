@@ -104,6 +104,21 @@ against the extracted tarball inside a throwaway `PI_CODING_AGENT_DIR`.
 `test/release-version.test.ts` covers the release workflow's version resolver
 in `scripts/release-version.ts`.
 
+`test/e2e.test.ts` is an opt-in test that exercises the real agent directory
+instead of a throwaway one: it clears any existing install, runs
+`pi install npm:@lglen/pi-parse-commands`, runs a smoke prompt that explicitly
+loads the npm copy and must print `SUCCESS`, then uninstalls the package. The
+expected resting state is "package not installed; only the local symlink is
+configured". It calls a real model and is excluded from the default vitest
+config, so it only runs on demand:
+
+```bash
+npm run test:e2e
+```
+
+Set `LOG=1` (or run `npm run test:e2e:log`) to print each `pi` command and its
+captured stdout/stderr while the test runs.
+
 ```bash
 npm install
 npm test
