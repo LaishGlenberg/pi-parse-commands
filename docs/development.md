@@ -52,11 +52,29 @@ The scanner deliberately keeps these out of the split:
 
 - separators inside quotes or escaped with a backslash;
 - `#` comments, but only when the `#` starts a word;
-- `&` that belongs to a redirection (`2>&1`, `>&2`, `&>file`).
+- `&` that belongs to a redirection (`2>&1`, `>&2`, `&>file`);
+- here-document bodies (see below).
 
-Command substitution, here-documents, and `case` statements are not parsed as
+### Here-documents
+
+A here-document redirection (`<<`, `<<-`, `<<'EOF'`, `<<"EOF"`, `<<\EOF`) is
+recognized and its body is swallowed whole, up to and including the terminator
+line. This is what keeps an embedded Python, Node, or bash program from being
+split into one bogus segment per line: the body stays in the segment that
+opened it, and parsing resumes on the line after the terminator.
+
+- `<<-` terminators may be indented with tabs; a quoted or escaped delimiter
+  matches the same literal word.
+- Multiple here-documents on one line are consumed in declaration order.
+- An unterminated body simply runs to the end of the command.
+- A here-string (`<<<word`) is not a here-document and is left untouched.
+- `$(( ... ))` arithmetic is consumed verbatim so a left shift (`1 << 2`) is
+  not mistaken for a here-document.
+
+Command substitution (`$(...)`) and `case` statements are still not parsed as
 nested constructs. Separators inside them become command boundaries. This is a
-known limitation kept intentionally for a quick visual overview.
+known limitation kept intentionally for a quick visual overview. Genuine
+multi-line control flow outside a here-document splits per line.
 
 The result is a `ShellCommandSegment[]` where each segment carries the command
 text and the operator that terminates it (the last segment has no operator).
@@ -65,8 +83,10 @@ text and the operator that terminates it (the last segment has no operator).
 
 `formatCommandBreakdown` numbers the segments, colors the number with `muted`,
 appends the trailing operator with `dim`, and highlights configured executable
-names. At most `MAX_BREAKDOWN_COMMANDS` (25) lines are drawn; the remainder is
-summarized as `... and N more`.
+names. A segment that spans multiple lines (a here-document body) is collapsed
+to its first line plus a muted `… (+N lines)` marker, so the embedded program is
+never reprinted inside the box. At most `MAX_BREAKDOWN_COMMANDS` (25) lines are
+drawn; the remainder is summarized as `... and N more`.
 
 `config.ts` loads the first `config.jsonc`, `config.json`, `config.yaml`, or
 `config.yml` found in `~/.pi/agent/extensions/pi-parse-commands-config/` (or the
@@ -101,7 +121,8 @@ would appear as a black strip.
 `test/parse-commands.test.ts` covers two layers:
 
 1. The pure parser with a matrix of quoting, escaping, comment, redirection,
-   and mixed-separator cases, including the dense real-world command.
+   here-document, and mixed-separator cases, including the dense real-world
+   command and the embedded Python/Node/bash here-document cases.
 2. The tool override: registration, preservation of execution/schema metadata,
    the breakdown box, single-command suppression, the display cap, re-render
    de-duplication, and timing state.

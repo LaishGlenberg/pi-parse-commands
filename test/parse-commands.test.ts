@@ -329,6 +329,88 @@ describe("parseShellCommands", () => {
 		expect(segments[5].command).not.toContain("|| echo ");
 		expect(segments[5].operator).toBeUndefined();
 	});
+
+	it("keeps a quoted heredoc body inside one command", () => {
+		const segments = parseShellCommands(
+			`cd /tmp && cat > rtest.sh <<'EOF'
+#!/usr/bin/env bash
+while true; do
+  printf 'P> '
+done
+EOF
+printf 'q\\n' | timeout 8 script -q -e -c "bash /tmp/rtest.sh" /dev/null 2>&1 | cat -v; echo "exit=$?"`,
+		);
+		expect(segments).toHaveLength(4);
+		expect(segments[0]).toEqual({ command: "cd /tmp", operator: "&&" });
+		expect(segments[1].command).toContain("cat > rtest.sh <<'EOF'");
+		expect(segments[1].command).toContain("while true; do");
+		expect(segments[1].command.endsWith("EOF")).toBe(true);
+		expect(segments[2].command).toContain("script -q -e -c");
+		expect(segments[2].operator).toBe(";");
+		expect(segments[3]).toEqual({ command: 'echo "exit=$?"' });
+	});
+
+	it("keeps a python heredoc body inside one command", () => {
+		const segments = parseShellCommands(`cd /repo && python - <<'PY'
+import os
+for r in range(3, 29):
+    print(r)
+PY`);
+		expect(segments).toHaveLength(2);
+		expect(segments[0]).toEqual({ command: "cd /repo", operator: "&&" });
+		expect(segments[1].command).toContain("python - <<'PY'");
+		expect(segments[1].command).toContain("print(r)");
+		expect(segments[1].command.endsWith("PY")).toBe(true);
+	});
+
+	it("does not split separators inside a heredoc body", () => {
+		const segments = parseShellCommands("cat <<EOF\na && b; c | d\nEOF", ALL_SEPARATORS);
+		expect(segments).toEqual([{ command: "cat <<EOF\na && b; c | d\nEOF" }]);
+	});
+
+	it("supports tab-indented terminators with <<-", () => {
+		const segments = parseShellCommands("cat <<-EOF\n\tbody\n\tEOF\nafter");
+		expect(segments).toEqual([{ command: "cat <<-EOF\n\tbody\n\tEOF" }, { command: "after" }]);
+	});
+
+	it("matches quoted and escaped heredoc delimiters", () => {
+		for (const opener of ["<<'EOF'", '<<"EOF"', "<<\\EOF"]) {
+			const segments = parseShellCommands(`cat ${opener}\nbody\nEOF\nafter`);
+			expect(segments).toEqual([{ command: `cat ${opener}\nbody\nEOF` }, { command: "after" }]);
+		}
+	});
+
+	it("runs an unterminated heredoc to the end of the command", () => {
+		const segments = parseShellCommands("cat <<EOF\nline one\nline two");
+		expect(segments).toEqual([{ command: "cat <<EOF\nline one\nline two" }]);
+	});
+
+	it("consumes multiple heredocs in declaration order", () => {
+		const segments = parseShellCommands("cat <<A <<B\nbody a\nA\nbody b\nB\nafter");
+		expect(segments).toEqual([{ command: "cat <<A <<B\nbody a\nA\nbody b\nB" }, { command: "after" }]);
+	});
+
+	it("attaches the body to the command that opened it across a separator", () => {
+		const segments = parseShellCommands("cat <<EOF && echo hi\nbody\nEOF");
+		expect(segments).toEqual([
+			{ command: "cat <<EOF\nbody\nEOF", operator: "&&" },
+			{ command: "echo hi" },
+		]);
+	});
+
+	it("does not treat a here-string as a heredoc", () => {
+		expect(parseShellCommands("cat <<< 'x && y'\nnext")).toEqual([
+			{ command: "cat <<< 'x && y'" },
+			{ command: "next" },
+		]);
+	});
+
+	it("does not treat an arithmetic left shift as a heredoc", () => {
+		expect(parseShellCommands("echo $((1 << 2)) && ls")).toEqual([
+			{ command: "echo $((1 << 2))", operator: "&&" },
+			{ command: "ls" },
+		]);
+	});
 });
 
 describe("splitShellCommands", () => {
@@ -379,6 +461,28 @@ describe("formatCommandBreakdown", () => {
 		expect(text).toContain("{mdHeading:orange}");
 		expect(text).toContain("{error:red}");
 	});
+
+	it("collapses a multi-line command to its first line and a line count", () => {
+		const command = "python - <<'PY'\nimport os\nprint(os.getcwd())\nPY";
+		const text = formatCommandBreakdown([{ command }], theme as any);
+		expect(text).toContain("python - <<'PY'");
+		expect(text).toContain("… (+3 lines)");
+		expect(text).not.toContain("print(os.getcwd())");
+	});
+
+	it("uses the singular line label for a two-line command", () => {
+		const text = formatCommandBreakdown([{ command: "cat <<EOF\nbody\nEOF" }], theme as any);
+		expect(text).toContain("… (+2 lines)");
+		const singular = formatCommandBreakdown([{ command: "echo a\necho b" }], theme as any);
+		expect(singular).toContain("… (+1 line)");
+	});
+
+	it("highlights the executable of a collapsed heredoc command", () => {
+		const text = formatCommandBreakdown([{ command: "node <<'JS'\nconsole.log(1)\nJS" }], theme as any, {
+			commands: { node: 1 },
+		});
+		expect(text).toContain("{warning:node} <<'JS'");
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -411,6 +515,16 @@ describe("pi-parse-commands extension", () => {
 	it("does not draw a breakdown for a single command", () => {
 		const output = renderCall(collectTool(), { command: "echo hi" });
 		expect(output).not.toContain("bg=customMessageBg");
+	});
+
+	it("collapses heredoc bodies in the breakdown box", () => {
+		const output = renderCall(collectTool(), {
+			command: "cd /tmp && cat > rtest.sh <<'EOF'\n#!/usr/bin/env bash\nwhile true; do\n  echo hi\ndone\nEOF\nprintf x",
+		});
+		expect(output).toContain("{muted:1.}");
+		expect(output).toContain("… (+5 lines)");
+		// The embedded program appears only on the raw `$` line, not re-listed.
+		expect(output.match(/while true; do/g)?.length).toBe(1);
 	});
 
 	it("draws a breakdown box with a distinct background for chained commands", () => {

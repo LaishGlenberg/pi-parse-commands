@@ -89,7 +89,12 @@ trailing operator) and `splitShellCommands(command)` (command strings only).
   empty array means newline-only splitting.
 - Never splits inside single/double quotes, on backslash-escaped separators, inside a
   `#` comment that starts a word, or on redirection `&` (`2>&1`, `&>file`, `>&2`).
-- Command substitution, here-docs, and `case` are parsed naively on purpose;
+- Here-documents are recognized: the body up to (and including) the terminator is
+  kept inside the command that opened it, so embedded Python/Node/bash programs are
+  not split into bogus segments. A multi-line segment is rendered collapsed to its
+  first line plus `… (+N lines)`. `<<<` here-strings and `$((1 << 2))` arithmetic are
+  explicitly not treated as here-documents.
+- Command substitution (`$(...)`) and `case` are still parsed naively on purpose;
   separators inside them become boundaries. Details in `docs/development.md`.
 - `MAX_BREAKDOWN_COMMANDS` (25) caps rendered lines; the rest is summarized.
 
