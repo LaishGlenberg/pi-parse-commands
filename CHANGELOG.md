@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move config migration out of extension load: nothing writes a config until you
   run `/parcom config`, and the on-load migration was removed.
 
+### Fixed
+
+- Recognize here-documents (`<<`, `<<-`, and quoted/escaped delimiters) so an
+  embedded Python, Node, or bash program is no longer split into a bogus
+  breakdown line per line. The body stays with the command that opened it, and
+  a multi-line command is collapsed in the box to its first line plus a
+  muted `… (+N lines)` marker instead of being reprinted.
+- Do not mistake a here-string (`<<<word`) or an arithmetic left shift
+  (`$((1 << 2))`) for a here-document.
+
 ## [1.1.0] - 2026-09-26
 
 ### Added

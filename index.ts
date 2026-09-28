@@ -11,8 +11,10 @@
  * a nested box below the command line that lists every command separately.
  *
  * The parser understands single/double quotes, backslash escapes, comments,
- * and redirections (`2>&1`, `&>`, `>&2`) so those do not produce bogus splits.
- * Command substitution, here-docs, and `case` statements are parsed naively.
+ * redirections (`2>&1`, `&>`, `>&2`), and here-documents so those do not
+ * produce bogus splits. Heredoc bodies are swallowed whole, which keeps
+ * embedded Python/bash/Node programs out of the breakdown. Command
+ * substitution and `case` statements are still parsed naively.
  *
  * Usage:
  *   pi -e ./index.ts
@@ -95,13 +97,141 @@ function isCommentStart(text: string, index: number): boolean {
 	return /\s/.test(prev) || prev === ";" || prev === "&" || prev === "|" || prev === "(" || prev === ")";
 }
 
+/** A here-document whose body has not been consumed yet. */
+interface PendingHeredoc {
+	/** Terminator word with quotes and backslashes stripped. */
+	delimiter: string;
+	/** `<<-` allows the terminator line to be indented with tabs. */
+	stripTabs: boolean;
+	/** Segment that declared this here-document, once it has been flushed. */
+	owner?: ShellCommandSegment;
+}
+
+const HEREDOC_END_CHARS = /[\s;&|<>()]/;
+
+/**
+ * Parse a here-document redirection at `index` (which must point at the first
+ * `<`), e.g. `<<EOF`, `<<-EOF`, `<<'EOF'`, `<<"EOF"`, or `<<\EOF`.
+ *
+ * Returns the verbatim operator text, the terminator word (quotes and
+ * backslashes stripped), and whether tabs before the terminator are ignored.
+ * Returns `undefined` when this is a here-string (`<<<`) or has no delimiter.
+ */
+function readHeredocOperator(
+	text: string,
+	index: number,
+): { text: string; delimiter: string; stripTabs: boolean } | undefined {
+	if (text[index] !== "<" || text[index + 1] !== "<" || text[index + 2] === "<") return undefined;
+
+	let cursor = index + 2;
+	let stripTabs = false;
+	if (text[cursor] === "-") {
+		stripTabs = true;
+		cursor++;
+	}
+	while (text[cursor] === " " || text[cursor] === "\t") cursor++;
+
+	let delimiter = "";
+	while (cursor < text.length) {
+		const ch = text[cursor];
+		if (HEREDOC_END_CHARS.test(ch)) break;
+		if (ch === "'" || ch === '"') {
+			const quote = ch;
+			cursor++;
+			while (cursor < text.length && text[cursor] !== quote) {
+				delimiter += text[cursor];
+				cursor++;
+			}
+			if (cursor < text.length) cursor++; // closing quote
+			continue;
+		}
+		if (ch === "\\") {
+			cursor++;
+			if (cursor < text.length) {
+				delimiter += text[cursor];
+				cursor++;
+			}
+			continue;
+		}
+		delimiter += ch;
+		cursor++;
+	}
+
+	if (!delimiter) return undefined;
+	return { text: text.slice(index, cursor), delimiter, stripTabs };
+}
+
+/**
+ * Consume the bodies of `pending` here-documents starting at `index` (the
+ * character right after the newline that opened them).
+ *
+ * Returns the new index and the verbatim body text of each here-document,
+ * including each terminator but not the newline that follows it (the main loop
+ * treats that newline as the command separator). The scanner stays deliberately
+ * naive inside a body: quotes, separators, and comments there belong to the
+ * embedded program, not to the shell command. An unterminated body simply runs
+ * to end of input.
+ */
+function consumeHeredocBodies(
+	text: string,
+	index: number,
+	pending: readonly PendingHeredoc[],
+): { index: number; bodies: { heredoc: PendingHeredoc; text: string }[] } {
+	let cursor = index;
+	const bodies: { heredoc: PendingHeredoc; text: string }[] = [];
+	for (let position = 0; position < pending.length; position++) {
+		const heredoc = pending[position];
+		const isLast = position === pending.length - 1;
+		let consumed = "";
+		let terminated = false;
+		while (cursor < text.length) {
+			const newline = text.indexOf("\n", cursor);
+			const hasNewline = newline !== -1;
+			const lineEnd = hasNewline ? newline : text.length;
+			const line = text.slice(cursor, lineEnd);
+			const candidate = heredoc.stripTabs ? line.replace(/^\t+/, "") : line;
+			if (candidate === heredoc.delimiter) {
+				consumed += line;
+				// Leave the final terminator's newline for the main loop; consume the
+				// earlier ones so the next body starts on the following line.
+				cursor = isLast ? lineEnd : lineEnd + 1;
+				terminated = true;
+				break;
+			}
+			consumed += hasNewline ? `${line}\n` : line;
+			cursor = hasNewline ? lineEnd + 1 : lineEnd;
+		}
+		bodies.push({ heredoc, text: consumed });
+		if (!terminated) break;
+	}
+	return { index: cursor, bodies };
+}
+
+/**
+ * Read a `$(( ... ))` arithmetic expansion at `index`, returning it verbatim.
+ * Skipping it keeps a left shift (`1 << 2`) from being mistaken for a heredoc.
+ * Parentheses are balanced; nested `$(...)` is tolerated.
+ */
+function readArithmeticExpansion(text: string, index: number): string {
+	let cursor = index + 3; // past `$((`
+	let depth = 2;
+	while (cursor < text.length && depth > 0) {
+		const ch = text[cursor];
+		if (ch === "(") depth++;
+		else if (ch === ")") depth--;
+		cursor++;
+	}
+	return text.slice(index, cursor);
+}
+
 /**
  * Split a shell command line into the individual commands that will run.
  *
  * Splits on the enabled `separators` (default `&&`, `||`, `;`) plus newlines.
  * Pass optional operators such as `|&`, `|`, and `&` to split on those too.
  * Separators inside single/double quotes, escaped separators, comments, and
- * redirections are preserved as part of the surrounding command.
+ * redirections are preserved as part of the surrounding command, and a
+ * here-document body stays attached to the command that opened it.
  */
 export function parseShellCommands(
 	command: string,
@@ -113,12 +243,20 @@ export function parseShellCommands(
 	let inSingleQuote = false;
 	let inDoubleQuote = false;
 	let escaped = false;
+	const pendingHeredocs: PendingHeredoc[] = [];
+	let ownedHeredocs: PendingHeredoc[] = [];
 
 	const flush = (operator?: string) => {
 		const trimmed = current.trim();
 		current = "";
 		if (!trimmed) return;
-		segments.push(operator && OPERATOR_LABELS.has(operator) ? { command: trimmed, operator } : { command: trimmed });
+		const segment: ShellCommandSegment =
+			operator && OPERATOR_LABELS.has(operator) ? { command: trimmed, operator } : { command: trimmed };
+		segments.push(segment);
+		// A here-document body belongs to the command that opened it, even when
+		// that command has already been flushed at a separator on the same line.
+		for (const heredoc of ownedHeredocs) heredoc.owner = segment;
+		ownedHeredocs = [];
 	};
 
 	let i = 0;
@@ -161,8 +299,48 @@ export function parseShellCommands(
 				continue;
 			}
 
+			if (ch === "$" && command[i + 1] === "(" && command[i + 2] === "(") {
+				const expansion = readArithmeticExpansion(command, i);
+				current += expansion;
+				i += expansion.length;
+				continue;
+			}
+
+			if (ch === "<") {
+				if (command[i + 1] === "<" && command[i + 2] === "<") {
+					// A here-string (`<<<word`), not a here-document. Consume the whole
+					// operator so the second `<` is not re-checked as a heredoc.
+					current += "<<<";
+					i += 3;
+					continue;
+				}
+				const heredoc = readHeredocOperator(command, i);
+				if (heredoc) {
+					current += heredoc.text;
+					const pending: PendingHeredoc = { delimiter: heredoc.delimiter, stripTabs: heredoc.stripTabs };
+					pendingHeredocs.push(pending);
+					ownedHeredocs.push(pending);
+					i += heredoc.text.length;
+					continue;
+				}
+			}
+
 			const operatorLength = matchOperatorLength(command, i, enabledSeparators);
 			if (operatorLength !== undefined) {
+				if (command[i] === "\n" && pendingHeredocs.length > 0) {
+					// This newline opens the pending here-document bodies instead of
+					// ending the command. Keep them inside the owning segment so the
+					// embedded program is not split into bogus commands. The newline
+					// after each terminator is left to be reprocessed as a separator.
+					const { index: bodyEnd, bodies } = consumeHeredocBodies(command, i + 1, pendingHeredocs);
+					for (const body of bodies) {
+						if (body.heredoc.owner) body.heredoc.owner.command += `\n${body.text}`;
+						else current += `\n${body.text}`;
+					}
+					i = bodyEnd;
+					pendingHeredocs.length = 0;
+					continue;
+				}
 				flush(command.slice(i, i + operatorLength));
 				i += operatorLength;
 				continue;
@@ -182,6 +360,13 @@ export function splitShellCommands(command: string): string[] {
 	return parseShellCommands(command).map((segment) => segment.command);
 }
 
+/** Collapse a here-document (or any multi-line) command to its first line plus a line count. */
+function collapseCommandLines(command: string): { display: string; hidden: number } {
+	const newline = command.indexOf("\n");
+	if (newline === -1) return { display: command, hidden: 0 };
+	return { display: command.slice(0, newline), hidden: command.split("\n").length - 1 };
+}
+
 /** Render one line per command, numbering them and showing the trailing operator. */
 export function formatCommandBreakdown(
 	segments: ShellCommandSegment[],
@@ -191,9 +376,11 @@ export function formatCommandBreakdown(
 	const shown = segments.slice(0, MAX_BREAKDOWN_COMMANDS);
 	const lines = shown.map((segment, index) => {
 		const number = theme.fg("muted", `${index + 1}.`);
-		const command = highlightCommandText(segment.command, theme, config);
+		const { display, hidden } = collapseCommandLines(segment.command);
+		const command = highlightCommandText(display, theme, config);
+		const truncated = hidden > 0 ? theme.fg("muted", ` … (+${hidden} line${hidden === 1 ? "" : "s"})`) : "";
 		const operator = segment.operator ? ` ${theme.fg("dim", segment.operator)}` : "";
-		return `${number} ${command}${operator}`;
+		return `${number} ${command}${truncated}${operator}`;
 	});
 	if (segments.length > shown.length) {
 		lines.push(theme.fg("muted", `... and ${segments.length - shown.length} more`));

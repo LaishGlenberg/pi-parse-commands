@@ -48,7 +48,14 @@ It does **not** split inside:
 - comments (`echo a # not; a; command`)
 - redirections (`2>&1`, `>&2`, `&>file`)
 
-Command substitution `$(...)`, here-documents, and `case` statements are parsed naively: separators inside them are treated as command boundaries. This is usually fine for a quick overview.
+Here-documents are recognized, so an embedded Python, Node, or bash program is
+not split into one bogus command per line. The body up to the terminator stays
+part of the command that opened it, and a multi-line segment is collapsed in the
+box to its first line plus a `… (+N lines)` marker so the body is not reprinted.
+
+Command substitution `$(...)` and `case` statements are parsed naively:
+separators inside them are treated as command boundaries. This is usually fine
+for a quick overview.
 
 ## Installation
 
