@@ -58,6 +58,14 @@ Levels 0 through 3 map to the theme's green, yellow, orange, and red colors.
 The optional `separators` array selects which list operators split the
 breakdown; it defaults to `["&&", "||", ";"]`.
 
+`migrateCommandConfig` keeps an existing config current as new top-level options
+are introduced. It feature-detects missing keys against `CONFIG_FEATURES` (no
+schema-version field), inserts them before the root close brace for JSON/JSONC or
+appends a block for YAML, and writes a `.bak` copy first. Editing the text in
+place preserves user comments and formatting; re-serializing would discard both.
+The migration is idempotent, never creates a config file, and skips malformed
+files. It runs once when the extension loads.
+
 `renderCall` reuses the container from `context.lastComponent` and clears it on
 each pass so re-renders do not duplicate the command. It also mirrors the
 built-in timing state (`startedAt` / `endedAt`) so the original `renderResult`
@@ -85,7 +93,10 @@ tests cover JSONC/YAML parsing, scanner edge cases (block comments, comment
 markers inside strings, trailing commas), level/separator normalization, file
 precedence (`jsonc` > `json` > `yaml` > `yml`), malformed-file fallback, and
 default discovery through `PI_CODING_AGENT_DIR`/`HOME`; the tool rendering
-tests cover configured highlighting.
+tests cover configured highlighting. Migration tests cover comment preservation,
+the `.bak` backup, idempotency, YAML and empty-object insertion, malformed-file
+fallback, and the no-config no-op; an extension-level test verifies migration is
+triggered when the extension loads against a stale config directory.
 
 `test/package.test.ts` covers the publishable artifact: package metadata, the
 `npm pack` file list, and an end-to-end install that runs the real `pi` CLI

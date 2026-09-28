@@ -1,6 +1,6 @@
 {
 	"name": "@lglen/pi-parse-commands",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"type": "module",
 	"description": "Split dense chained bash commands into a numbered breakdown box below the tool call",
 	"keywords": [
@@ -57,6 +57,8 @@
 	"scripts": {
 		"test": "vitest --run",
 		"typecheck": "tsc --noEmit",
-		"lint": "oxlint --deny-warnings index.ts config.ts highlight.ts scripts test"
+		"lint": "oxlint --deny-warnings index.ts config.ts highlight.ts scripts test",
+		"minor": "npm version minor --no-git-tag-version",
+		"major": "npm version minor --no-git-tag-version"
 	}
 }

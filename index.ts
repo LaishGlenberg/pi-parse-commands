@@ -20,7 +20,7 @@
 
 import { createBashToolDefinition, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
-import { DEFAULT_SEPARATORS, loadCommandConfig, normalizeSeparators, type CommandHighlightConfig } from "./config.ts";
+import { DEFAULT_SEPARATORS, loadCommandConfig, migrateCommandConfig, normalizeSeparators, type CommandHighlightConfig } from "./config.ts";
 import { highlightCommandText, highlightShellCommand } from "./highlight.ts";
 
 /** Hard cap on how many parsed commands are drawn in the breakdown box. */
@@ -205,6 +205,10 @@ export interface BashCommandBreakdownOptions {
 }
 
 export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashCommandBreakdownOptions = {}): void {
+	// Keep an existing personal config in sync with options added by newer
+	// versions (e.g. `separators`) before loading it, so a migrated option takes
+	// effect on this load. Skipped when a config is injected directly.
+	if (!options.config) migrateCommandConfig(options.configDirectory);
 	const config = options.config ?? loadCommandConfig(options.configDirectory);
 	// Reuse the built-in implementation so execution and result rendering stay
 	// identical. Only renderCall is replaced.
