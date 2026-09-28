@@ -16,6 +16,22 @@ The extension wraps the built-in `bash` tool:
 Re-registering a built-in tool by name replaces it; only rendering changes.
 Execution, truncation, timing, and expansion are the original implementation.
 
+A `/parcom` command controls the extension at runtime. `on`/`off` flip a
+session-scoped `enabled` flag: when off, `renderCall` skips the breakdown and
+renders the plain `$ <command>` line instead, and the status indicator switches
+to `parcom:off`. Because the bash tool is registered once, the flag is read
+inside `renderCall` rather than by re-registering the tool. The flag resets to
+enabled when the extension loads for a new session.
+
+`/parcom config` opens `ctx.ui.editor` with the raw text of the first config
+file found (`resolveCommandConfigPath`), or the `DEFAULT_CONFIG_TEMPLATE` when
+none exists. On submit the content is parsed with `parseCommandConfigContent`;
+an invalid JSONC/YAML document is reported and the editor is re-opened instead of
+writing, so a bad edit can never clobber a working config. A valid document is
+written by `saveCommandConfig` (creating the directory if needed) and re-loaded
+into the renderer without a restart. Migration still never creates a config on
+its own; only an explicit save does.
+
 ## Parsing
 
 `parseShellCommands` is a small single-pass scanner. It tracks single quotes,
@@ -97,6 +113,11 @@ tests cover configured highlighting. Migration tests cover comment preservation,
 the `.bak` backup, idempotency, YAML and empty-object insertion, malformed-file
 fallback, and the no-config no-op; an extension-level test verifies migration is
 triggered when the extension loads against a stale config directory.
+
+`/parcom` coverage exercises argument completion, session-scoped toggling
+(including suppression of highlighting), the status indicator, config prefill,
+save-and-reload, and the invalid-config re-prompt. Config helper tests cover
+`resolveCommandConfigPath` precedence and `saveCommandConfig`.
 
 `test/package.test.ts` covers the publishable artifact: package metadata, the
 `npm pack` file list, and an end-to-end install that runs the real `pi` CLI

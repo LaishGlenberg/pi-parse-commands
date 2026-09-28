@@ -12,10 +12,10 @@
  * definition to wrap; its execution path is irrelevant here.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Box } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 
@@ -49,7 +49,7 @@ import bashCommandBreakdown, {
 	parseShellCommands,
 	splitShellCommands,
 } from "../index.ts";
-import { DEFAULT_SEPARATORS, OPTIONAL_SEPARATORS } from "../config.ts";
+import { DEFAULT_SEPARATORS, DEFAULT_CONFIG_TEMPLATE, OPTIONAL_SEPARATORS } from "../config.ts";
 
 /** Every operator the parser understands, including the optional ones. */
 const ALL_SEPARATORS = [...DEFAULT_SEPARATORS, ...OPTIONAL_SEPARATORS];
@@ -74,15 +74,46 @@ const theme: FakeFg = {
 	dim: (text) => `~${text}~`,
 };
 
-function collectTool(options: Parameters<typeof bashCommandBreakdown>[1] = { config: { commands: {} } }) {
+function collectExtension(options: Parameters<typeof bashCommandBreakdown>[1] = { config: { commands: {} } }) {
 	const tools: any[] = [];
+	const commands = new Map<string, any>();
 	const pi = {
 		registerTool: (tool: any) => tools.push(tool),
+		registerCommand: (name: string, command: any) => commands.set(name, command),
+		on: vi.fn(),
 	} as unknown as ExtensionAPI;
 	bashCommandBreakdown(pi, options);
 	const tool = tools.find((t) => t.name === "bash");
 	if (!tool) throw new Error("bash tool was not registered");
-	return tool;
+	return { tool, commands };
+}
+
+function collectTool(options: Parameters<typeof bashCommandBreakdown>[1] = { config: { commands: {} } }) {
+	return collectExtension(options).tool;
+}
+
+interface CommandNotifications {
+	message: string;
+	type?: string;
+}
+
+function createCommandContext() {
+	const notifications: CommandNotifications[] = [];
+	const statuses = new Map<string, string | undefined>();
+	const editor = vi.fn(async (_title: string, _prefill?: string): Promise<string | undefined> => undefined);
+	const confirm = vi.fn(async (_title: string, _message: string): Promise<boolean> => false);
+	const ctx = {
+		hasUI: true,
+		mode: "tui",
+		ui: {
+			notify: (message: string, type?: string) => notifications.push({ message, type }),
+			setStatus: (key: string, text: string | undefined) => statuses.set(key, text),
+			editor,
+			confirm,
+			theme: { fg: (color: string, text: string) => `{${color}:${text}}` },
+		},
+	} as unknown as ExtensionCommandContext;
+	return { ctx, notifications, statuses, editor, confirm };
 }
 
 function renderCall(tool: any, args: any, width = 100): string {
@@ -486,6 +517,125 @@ describe("pi-parse-commands extension", () => {
 			writeFileSync(configPath, '{"commands":{"node":1}}');
 			collectTool({ configDirectory: directory });
 			expect(readFileSync(configPath, "utf8")).toContain('"separators"');
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// /parcom command
+// ---------------------------------------------------------------------------
+
+describe("/parcom command", () => {
+	it("completes the on, off, and config options", () => {
+		const { commands } = collectExtension();
+		const complete = commands.get("parcom").getArgumentCompletions;
+		expect(complete("").map((item: any) => item.value)).toEqual(["on", "off", "config"]);
+		expect(complete("o").map((item: any) => item.value)).toEqual(["on", "off"]);
+		expect(complete("c").map((item: any) => item.value)).toEqual(["config"]);
+		expect(complete("zzz")).toEqual([]);
+	});
+
+	it("hides the breakdown after /parcom off and restores it after /parcom on", async () => {
+		const { tool, commands } = collectExtension();
+		const { ctx } = createCommandContext();
+
+		await commands.get("parcom").handler("off", ctx);
+		const off = renderCall(tool, { command: "cd /tmp && make" });
+		expect(off).not.toContain("bg=customMessageBg");
+		expect(off).toContain("*$ cd /tmp && make*");
+
+		await commands.get("parcom").handler("on", ctx);
+		const on = renderCall(tool, { command: "cd /tmp && make" });
+		expect(on).toContain("bg=customMessageBg");
+		expect(on).toContain("{muted:1.}");
+	});
+
+	it("turns off command highlighting along with the breakdown", async () => {
+		const { tool, commands } = collectExtension({ config: { commands: { node: 1 } } });
+		const { ctx } = createCommandContext();
+		await commands.get("parcom").handler("off", ctx);
+		const off = renderCall(tool, { command: "node -v && echo done" });
+		expect(off).not.toContain("{warning:node}");
+	});
+
+	it("updates the parcom status when toggled", async () => {
+		const { commands } = collectExtension();
+		const { ctx, statuses } = createCommandContext();
+		await commands.get("parcom").handler("off", ctx);
+		expect(statuses.get("parcom")).toBe("{dim:parcom:off}");
+		await commands.get("parcom").handler("on", ctx);
+		expect(statuses.get("parcom")).toBe("{accent:parcom:on}");
+	});
+
+	it("reports the current state when called with no option", async () => {
+		const { commands } = collectExtension();
+		const { ctx, notifications } = createCommandContext();
+		await commands.get("parcom").handler("", ctx);
+		expect(notifications.at(-1)?.message).toContain("Command breakdown is on");
+	});
+
+	it("warns on an unknown option", async () => {
+		const { commands } = collectExtension();
+		const { ctx, notifications } = createCommandContext();
+		await commands.get("parcom").handler("nope", ctx);
+		expect(notifications.at(-1)).toEqual({
+			message: 'Unknown /parcom option "nope". Use on, off, or config.',
+			type: "warning",
+		});
+	});
+
+	it("writes the edited config and applies it without a restart", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
+		try {
+			const { tool, commands } = collectExtension({ configDirectory: directory });
+			const { ctx, editor } = createCommandContext();
+			editor.mockResolvedValueOnce('{"commands":{"node":3}}');
+
+			await commands.get("parcom").handler("config", ctx);
+
+			const configPath = join(directory, "config.jsonc");
+			expect(readFileSync(configPath, "utf8")).toBe('{"commands":{"node":3}}');
+			expect(editor).toHaveBeenCalledWith(`parcom config — ${configPath}`, DEFAULT_CONFIG_TEMPLATE);
+			const output = renderCall(tool, { command: "node -v && echo done" });
+			expect(output).toContain("{error:node}");
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("prefills an existing config file", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
+		try {
+			const configPath = join(directory, "config.jsonc");
+			const existing = '{"commands":{"rg":2},"separators":["&&","||",";"]}';
+			writeFileSync(configPath, existing);
+			const { commands } = collectExtension({ configDirectory: directory });
+			const { ctx, editor } = createCommandContext();
+			editor.mockResolvedValueOnce(undefined);
+
+			await commands.get("parcom").handler("config", ctx);
+
+			expect(editor).toHaveBeenCalledWith(`parcom config — ${configPath}`, existing);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("re-prompts on invalid config and leaves the file untouched", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
+		try {
+			const { commands } = collectExtension({ configDirectory: directory });
+			const { ctx, editor, confirm, notifications } = createCommandContext();
+			editor.mockResolvedValueOnce("not valid json");
+			confirm.mockResolvedValueOnce(false);
+
+			await commands.get("parcom").handler("config", ctx);
+
+			expect(existsSync(join(directory, "config.jsonc"))).toBe(false);
+			expect(confirm).toHaveBeenCalledWith("Invalid config", "The config was not saved. Keep editing?");
+			expect(notifications.some((entry) => entry.type === "error")).toBe(true);
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}

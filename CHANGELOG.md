@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `/parcom on` and `/parcom off` to enable or disable the breakdown for the
+  current session, with a `parcom:on`/`parcom:off` status indicator. The toggle
+  is session-scoped and resets when pi starts.
+- Add `/parcom config` to edit the highlight config in the multi-line TUI editor.
+  The content is validated as JSONC/YAML before writing, an invalid document
+  re-opens the editor instead of clobbering the file, and a missing config is
+  created from a template on save. Saving applies the new config immediately.
+- Add `resolveCommandConfigPath`, `saveCommandConfig`, and
+  `DEFAULT_CONFIG_TEMPLATE` config helpers used by the editor.
 - Upgrade an existing config on load when it predates a new top-level option:
   insert the option with its default, preserve comments, and write a `.bak`
   backup first. Migration runs before the config is loaded, reuses an existing

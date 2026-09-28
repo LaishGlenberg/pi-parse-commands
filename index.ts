@@ -18,9 +18,26 @@
  *   pi -e ./index.ts
  */
 
-import { createBashToolDefinition, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
-import { DEFAULT_SEPARATORS, loadCommandConfig, migrateCommandConfig, normalizeSeparators, type CommandHighlightConfig } from "./config.ts";
+import { existsSync, readFileSync } from "node:fs";
+import {
+	createBashToolDefinition,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
+import { type AutocompleteItem, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+	DEFAULT_CONFIG_TEMPLATE,
+	DEFAULT_SEPARATORS,
+	loadCommandConfig,
+	migrateCommandConfig,
+	normalizeSeparators,
+	parseCommandConfigContent,
+	resolveCommandConfigPath,
+	saveCommandConfig,
+	type CommandHighlightConfig,
+} from "./config.ts";
 import { highlightCommandText, highlightShellCommand } from "./highlight.ts";
 
 /** Hard cap on how many parsed commands are drawn in the breakdown box. */
@@ -204,12 +221,120 @@ export interface BashCommandBreakdownOptions {
 	configDirectory?: string;
 }
 
+/** Slash command name and its session-scoped options. */
+const PARCOM_COMMAND = "parcom";
+const PARCOM_OPTIONS: readonly AutocompleteItem[] = [
+	{ value: "on", label: "on", description: "Enable the command breakdown for this session" },
+	{ value: "off", label: "off", description: "Disable the command breakdown for this session" },
+	{ value: "config", label: "config", description: "Edit the highlight config in a TUI editor" },
+];
+
+/** Rendering config used while the breakdown is disabled: no highlighting or splitting. */
+const NO_HIGHLIGHT: CommandHighlightConfig = { commands: {}, separators: [] };
+
+function describeError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashCommandBreakdownOptions = {}): void {
 	// Keep an existing personal config in sync with options added by newer
 	// versions (e.g. `separators`) before loading it, so a migrated option takes
 	// effect on this load. Skipped when a config is injected directly.
 	if (!options.config) migrateCommandConfig(options.configDirectory);
-	const config = options.config ?? loadCommandConfig(options.configDirectory);
+	let config = options.config ?? loadCommandConfig(options.configDirectory);
+	// Session-scoped: `/parcom off` suppresses rendering until re-enabled or the session restarts.
+	let enabled = true;
+
+	const updateStatus = (ctx: ExtensionContext): void => {
+		ctx.ui.setStatus(
+			PARCOM_COMMAND,
+			enabled ? ctx.ui.theme.fg("accent", "parcom:on") : ctx.ui.theme.fg("dim", "parcom:off"),
+		);
+	};
+
+	const editConfig = async (ctx: ExtensionCommandContext): Promise<void> => {
+		if (!ctx.hasUI) {
+			ctx.ui.notify("/parcom config requires an interactive UI", "error");
+			return;
+		}
+
+		const configPath = resolveCommandConfigPath(options.configDirectory);
+		let content: string;
+		try {
+			content = existsSync(configPath) ? readFileSync(configPath, "utf8") : DEFAULT_CONFIG_TEMPLATE;
+		} catch (error) {
+			ctx.ui.notify(`Could not read ${configPath}: ${describeError(error)}`, "error");
+			return;
+		}
+
+		for (;;) {
+			const edited = await ctx.ui.editor(`parcom config — ${configPath}`, content);
+			if (edited === undefined) {
+				ctx.ui.notify("Config edit cancelled", "info");
+				return;
+			}
+
+			try {
+				parseCommandConfigContent(edited, configPath);
+			} catch (error) {
+				ctx.ui.notify(`Invalid config: ${describeError(error)}`, "error");
+				const keepEditing = await ctx.ui.confirm("Invalid config", "The config was not saved. Keep editing?");
+				if (!keepEditing) return;
+				content = edited;
+				continue;
+			}
+
+			try {
+				saveCommandConfig(edited, configPath);
+			} catch (error) {
+				ctx.ui.notify(`Could not save ${configPath}: ${describeError(error)}`, "error");
+				return;
+			}
+
+			// Pick up the new highlight levels and separators without a restart.
+			if (!options.config) config = loadCommandConfig(options.configDirectory);
+			ctx.ui.notify(`Saved ${configPath}`, "info");
+			return;
+		}
+	};
+
+	pi.registerCommand(PARCOM_COMMAND, {
+		description: "Toggle or edit the bash command breakdown",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] =>
+			PARCOM_OPTIONS.filter((item) => item.value.startsWith(prefix)).map((item) => ({ ...item })),
+		handler: async (args, ctx) => {
+			const option = args.trim().toLowerCase();
+			if (option === "on") {
+				enabled = true;
+				updateStatus(ctx);
+				ctx.ui.notify("Command breakdown enabled", "info");
+				return;
+			}
+			if (option === "off") {
+				enabled = false;
+				updateStatus(ctx);
+				ctx.ui.notify("Command breakdown disabled", "info");
+				return;
+			}
+			if (option === "config") {
+				await editConfig(ctx);
+				return;
+			}
+			if (option === "") {
+				ctx.ui.notify(
+					`Command breakdown is ${enabled ? "on" : "off"}. Use /parcom on, /parcom off, or /parcom config.`,
+					"info",
+				);
+				return;
+			}
+			ctx.ui.notify(`Unknown /parcom option "${option}". Use on, off, or config.`, "warning");
+		},
+	});
+
+	pi.on("session_start", (_event, ctx) => {
+		updateStatus(ctx);
+	});
+
 	// Reuse the built-in implementation so execution and result rendering stay
 	// identical. Only renderCall is replaced.
 	const original = createBashToolDefinition(process.cwd());
@@ -238,9 +363,11 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 
 			const container = (context.lastComponent as Container | undefined) ?? new Container();
 			container.clear();
-			container.addChild(new Text(formatShellCall(args, theme, config), 0, 0));
+			container.addChild(new Text(formatShellCall(args, theme, enabled ? config : NO_HIGHLIGHT), 0, 0));
 
-			const segments = parseShellCommands(typeof args?.command === "string" ? args.command : "", config.separators);
+			const segments = enabled
+				? parseShellCommands(typeof args?.command === "string" ? args.command : "", config.separators)
+				: [];
 			if (segments.length > 1) {
 				// The parent ToolExecution box supplies the tool background. A nested
 				// theme.bg() resets that background, so restore it after each custom

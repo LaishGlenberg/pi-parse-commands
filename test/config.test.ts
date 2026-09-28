@@ -3,10 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	DEFAULT_CONFIG_TEMPLATE,
+	defaultConfigDirectories,
 	findMissingConfigFeatures,
 	loadCommandConfig,
 	migrateCommandConfig,
 	parseCommandConfigContent,
+	resolveCommandConfigPath,
+	saveCommandConfig,
 } from "../config.ts";
 
 const DEFAULT_SEPARATORS = ["&&", "||", ";"];
@@ -340,5 +344,39 @@ describe("config migration", () => {
 		expect(findMissingConfigFeatures('{"commands":{}}')).toEqual(["separators"]);
 		expect(findMissingConfigFeatures('{"separators":["&&"]}')).toEqual([]);
 		expect(findMissingConfigFeatures("[1,2,3]")).toEqual([]);
+	});
+});
+
+describe("config editor helpers", () => {
+	it("prefers an existing config file over creating a new one", () => {
+		const directory = createTemporaryDirectory();
+		const yamlPath = join(directory, "config.yaml");
+		writeFileSync(yamlPath, "commands:\n  node: 1\n");
+		expect(resolveCommandConfigPath(directory)).toBe(yamlPath);
+	});
+
+	it("falls back to config.jsonc when no config exists", () => {
+		const directory = createTemporaryDirectory();
+		expect(resolveCommandConfigPath(directory)).toBe(join(directory, "config.jsonc"));
+	});
+
+	it("saves config content and creates the parent directory", () => {
+		const directory = join(createTemporaryDirectory(), "nested", "config");
+		const configPath = join(directory, "config.jsonc");
+		saveCommandConfig('{"commands":{"node":1}}', configPath);
+		expect(readFileSync(configPath, "utf8")).toBe('{"commands":{"node":1}}');
+	});
+
+	it("ships a template that parses to the defaults", () => {
+		expect(parseCommandConfigContent(DEFAULT_CONFIG_TEMPLATE, "config.jsonc")).toEqual({
+			commands: { node: 1, rm: 3 },
+			separators: ["&&", "||", ";"],
+		});
+	});
+
+	it("discovers the agent extension directory first", () => {
+		const directory = createTemporaryDirectory();
+		process.env.PI_CODING_AGENT_DIR = directory;
+		expect(defaultConfigDirectories()[0]).toBe(join(directory, "extensions", "pi-parse-commands-config"));
 	});
 });

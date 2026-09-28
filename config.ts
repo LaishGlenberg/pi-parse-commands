@@ -151,7 +151,7 @@ export function findCommandConfigPath(configDirectory: string): string | undefin
 	return undefined;
 }
 
-function defaultConfigDirectories(): string[] {
+export function defaultConfigDirectories(): string[] {
 	const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 	const agentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent");
 	return [
@@ -164,6 +164,41 @@ function defaultConfigDirectories(): string[] {
 		path.join(process.cwd(), CONFIG_DIRECTORY_NAME),
 	];
 }
+
+/**
+ * Resolve the config file the TUI editor should open.
+ *
+ * Returns the first existing config file, or the path a new `config.jsonc`
+ * would be created at in the highest-priority config directory.
+ */
+export function resolveCommandConfigPath(configDirectory?: string): string {
+	const directories = configDirectory ? [configDirectory] : defaultConfigDirectories();
+	for (const directory of directories) {
+		const existing = findCommandConfigPath(directory);
+		if (existing) return existing;
+	}
+	const baseDirectory = directories[0] ?? process.cwd();
+	return path.join(baseDirectory, CONFIG_FILENAMES[0]);
+}
+
+/** Write config contents, creating the parent directory when needed. */
+export function saveCommandConfig(content: string, configPath: string): void {
+	fs.mkdirSync(path.dirname(configPath), { recursive: true });
+	fs.writeFileSync(configPath, content, "utf8");
+}
+
+/** Starter JSONC shown by `/parcom config` when no config file exists yet. */
+export const DEFAULT_CONFIG_TEMPLATE = `{
+  // 0 = green, 1 = yellow, 2 = orange, 3 = red
+  "commands": {
+    "node": 1,
+    "rm": 3
+  },
+  // List operators that start a new breakdown line.
+  // Defaults to the three below; add any of "|&", "|", "&" to opt in.
+  "separators": ["&&", "||", ";"]
+}
+`;
 
 /** Load the first config file found. JSONC and YAML are supported. */
 export function loadCommandConfig(configDirectory?: string): CommandHighlightConfig {
