@@ -16,6 +16,23 @@ The extension wraps the built-in `bash` tool:
 Re-registering a built-in tool by name replaces it; only rendering changes.
 Execution, truncation, timing, and expansion are the original implementation.
 
+A `/parcom` command controls the extension at runtime. `on`/`off` flip a
+session-scoped `enabled` flag: when off, `renderCall` skips the breakdown and
+renders the plain `$ <command>` line instead, and the status indicator switches
+to `parcom:off`. Because the bash tool is registered once, the flag is read
+inside `renderCall` rather than by re-registering the tool. The flag resets to
+enabled when the extension loads for a new session.
+
+`/parcom config` is TUI-only (any other `ctx.mode` gets a notification and no
+write) and is the only thing that ever writes config. It resolves the target with
+`extensionConfigPath` in the single config directory and does one of three
+things: with no config it writes `DEFAULT_CONFIG_TEMPLATE` to `config.jsonc`;
+with a config missing a newer top-level option it calls
+`applyCommandConfigMigration` (in-place insert, `.bak` first); with a current
+config it reports it is already up to date and offers a confirmed regenerate from
+the template. A malformed config is never overwritten without that confirmation.
+Every write re-loads the config into the renderer without a restart.
+
 ## Parsing
 
 `parseShellCommands` is a small single-pass scanner. It tracks single quotes,
@@ -58,13 +75,15 @@ Levels 0 through 3 map to the theme's green, yellow, orange, and red colors.
 The optional `separators` array selects which list operators split the
 breakdown; it defaults to `["&&", "||", ";"]`.
 
-`migrateCommandConfig` keeps an existing config current as new top-level options
-are introduced. It feature-detects missing keys against `CONFIG_FEATURES` (no
-schema-version field), inserts them before the root close brace for JSON/JSONC or
-appends a block for YAML, and writes a `.bak` copy first. Editing the text in
+`applyCommandConfigMigration` keeps an existing config current as new top-level
+options are introduced. It feature-detects missing keys against `CONFIG_FEATURES`
+(no schema-version field), inserts them before the root close brace for JSON/JSONC
+or appends a block for YAML, and writes a `.bak` copy first. Editing the text in
 place preserves user comments and formatting; re-serializing would discard both.
-The migration is idempotent, never creates a config file, and skips malformed
-files. It runs once when the extension loads.
+It targets an explicit `configPath`, so there is no multi-directory search and no
+migration on load: only `/parcom config` calls it. `extensionConfigDirectory` is
+the single source of the config directory and `extensionConfigPath` picks the
+first supported file (or the `config.jsonc` a new one would use).
 
 `renderCall` reuses the container from `context.lastComponent` and clears it on
 each pass so re-renders do not duplicate the command. It also mirrors the
@@ -92,11 +111,18 @@ needs a bash definition to wrap; its execution path is not exercised. Config
 tests cover JSONC/YAML parsing, scanner edge cases (block comments, comment
 markers inside strings, trailing commas), level/separator normalization, file
 precedence (`jsonc` > `json` > `yaml` > `yml`), malformed-file fallback, and
-default discovery through `PI_CODING_AGENT_DIR`/`HOME`; the tool rendering
-tests cover configured highlighting. Migration tests cover comment preservation,
-the `.bak` backup, idempotency, YAML and empty-object insertion, malformed-file
-fallback, and the no-config no-op; an extension-level test verifies migration is
-triggered when the extension loads against a stale config directory.
+loading only from the single extension directory; the tool rendering tests cover
+configured highlighting. Migration tests cover path-targeted insertion, comment
+preservation, the `.bak` backup, YAML and empty-object insertion, trailing-comma
+reuse, and the throw-on-malformed contract. Config path tests cover
+`extensionConfigDirectory` / `extensionConfigPath` and `saveCommandConfig`, plus
+the template parsing to the defaults.
+
+`/parcom` coverage exercises argument completion, session-scoped toggling
+(including suppression of highlighting), the status indicator, and the full
+`/parcom config` matrix: create-from-template, upgrade an older config, decline
+or confirm regeneration of a current config, malformed-config handling, and the
+non-TUI no-op.
 
 `test/package.test.ts` covers the publishable artifact: package metadata, the
 `npm pack` file list, and an end-to-end install that runs the real `pi` CLI

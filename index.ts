@@ -18,9 +18,26 @@
  *   pi -e ./index.ts
  */
 
-import { createBashToolDefinition, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
-import { DEFAULT_SEPARATORS, loadCommandConfig, migrateCommandConfig, normalizeSeparators, type CommandHighlightConfig } from "./config.ts";
+import { existsSync, readFileSync } from "node:fs";
+import {
+	createBashToolDefinition,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
+import { type AutocompleteItem, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+	applyCommandConfigMigration,
+	DEFAULT_CONFIG_TEMPLATE,
+	DEFAULT_SEPARATORS,
+	extensionConfigPath,
+	findMissingConfigFeatures,
+	loadCommandConfig,
+	normalizeSeparators,
+	saveCommandConfig,
+	type CommandHighlightConfig,
+} from "./config.ts";
 import { highlightCommandText, highlightShellCommand } from "./highlight.ts";
 
 /** Hard cap on how many parsed commands are drawn in the breakdown box. */
@@ -204,12 +221,141 @@ export interface BashCommandBreakdownOptions {
 	configDirectory?: string;
 }
 
+/** Slash command name and its session-scoped options. */
+const PARCOM_COMMAND = "parcom";
+const PARCOM_OPTIONS: readonly AutocompleteItem[] = [
+	{ value: "on", label: "on", description: "Enable the command breakdown for this session" },
+	{ value: "off", label: "off", description: "Disable the command breakdown for this session" },
+	{ value: "config", label: "config", description: "Create, upgrade, or regenerate the highlight config" },
+];
+
+/** Rendering config used while the breakdown is disabled: no highlighting or splitting. */
+const NO_HIGHLIGHT: CommandHighlightConfig = { commands: {}, separators: [] };
+
+function describeError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashCommandBreakdownOptions = {}): void {
-	// Keep an existing personal config in sync with options added by newer
-	// versions (e.g. `separators`) before loading it, so a migrated option takes
-	// effect on this load. Skipped when a config is injected directly.
-	if (!options.config) migrateCommandConfig(options.configDirectory);
-	const config = options.config ?? loadCommandConfig(options.configDirectory);
+	let config = options.config ?? loadCommandConfig(options.configDirectory);
+	// Session-scoped: `/parcom off` suppresses rendering until re-enabled or the session restarts.
+	let enabled = true;
+
+	// Re-read the on-disk config after `/parcom config` edits it, unless a config
+	// was injected directly (tests or embedding applications).
+	const reloadConfig = (): void => {
+		if (!options.config) config = loadCommandConfig(options.configDirectory);
+	};
+
+	const updateStatus = (ctx: ExtensionContext): void => {
+		ctx.ui.setStatus(
+			PARCOM_COMMAND,
+			enabled ? ctx.ui.theme.fg("accent", "parcom:on") : ctx.ui.theme.fg("dim", "parcom:off"),
+		);
+	};
+
+	const offerRegenerate = async (ctx: ExtensionCommandContext, configPath: string): Promise<void> => {
+		const confirmed = await ctx.ui.confirm(
+			"Regenerate config?",
+			`This deletes ${configPath} and recreates it from the default. Continue?`,
+		);
+		if (!confirmed) return;
+
+		try {
+			saveCommandConfig(DEFAULT_CONFIG_TEMPLATE, configPath);
+		} catch (error) {
+			ctx.ui.notify(`Could not write ${configPath}: ${describeError(error)}`, "error");
+			return;
+		}
+		reloadConfig();
+		ctx.ui.notify(`Regenerated ${configPath}`, "info");
+	};
+
+	const configure = async (ctx: ExtensionCommandContext): Promise<void> => {
+		if (ctx.mode !== "tui") {
+			ctx.ui.notify("/parcom config is only available in the TUI", "warning");
+			return;
+		}
+
+		const configPath = extensionConfigPath(options.configDirectory);
+
+		// 1. No config yet: generate the default template.
+		if (!existsSync(configPath)) {
+			try {
+				saveCommandConfig(DEFAULT_CONFIG_TEMPLATE, configPath);
+			} catch (error) {
+				ctx.ui.notify(`Could not write ${configPath}: ${describeError(error)}`, "error");
+				return;
+			}
+			reloadConfig();
+			ctx.ui.notify(`Created ${configPath}`, "info");
+			return;
+		}
+
+		// 2. Existing config: add any top-level options introduced by newer versions.
+		let missing: string[];
+		try {
+			missing = findMissingConfigFeatures(readFileSync(configPath, "utf8"), configPath);
+		} catch (error) {
+			ctx.ui.notify(`Could not parse ${configPath}: ${describeError(error)}`, "error");
+			await offerRegenerate(ctx, configPath);
+			return;
+		}
+
+		if (missing.length > 0) {
+			try {
+				applyCommandConfigMigration(configPath, missing);
+			} catch (error) {
+				ctx.ui.notify(`Could not update ${configPath}: ${describeError(error)}`, "error");
+				return;
+			}
+			reloadConfig();
+			ctx.ui.notify(`Updated ${configPath}: added ${missing.join(", ")}`, "info");
+			return;
+		}
+
+		// 3. Current config: offer a clean regenerate from the default.
+		ctx.ui.notify("Your config is already up to date.", "info");
+		await offerRegenerate(ctx, configPath);
+	};
+
+	pi.registerCommand(PARCOM_COMMAND, {
+		description: "Toggle or configure the bash command breakdown",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] =>
+			PARCOM_OPTIONS.filter((item) => item.value.startsWith(prefix)).map((item) => ({ ...item })),
+		handler: async (args, ctx) => {
+			const option = args.trim().toLowerCase();
+			if (option === "on") {
+				enabled = true;
+				updateStatus(ctx);
+				ctx.ui.notify("Command breakdown enabled", "info");
+				return;
+			}
+			if (option === "off") {
+				enabled = false;
+				updateStatus(ctx);
+				ctx.ui.notify("Command breakdown disabled", "info");
+				return;
+			}
+			if (option === "config") {
+				await configure(ctx);
+				return;
+			}
+			if (option === "") {
+				ctx.ui.notify(
+					`Command breakdown is ${enabled ? "on" : "off"}. Use /parcom on, /parcom off, or /parcom config.`,
+					"info",
+				);
+				return;
+			}
+			ctx.ui.notify(`Unknown /parcom option "${option}". Use on, off, or config.`, "warning");
+		},
+	});
+
+	pi.on("session_start", (_event, ctx) => {
+		updateStatus(ctx);
+	});
+
 	// Reuse the built-in implementation so execution and result rendering stay
 	// identical. Only renderCall is replaced.
 	const original = createBashToolDefinition(process.cwd());
@@ -238,9 +384,11 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 
 			const container = (context.lastComponent as Container | undefined) ?? new Container();
 			container.clear();
-			container.addChild(new Text(formatShellCall(args, theme, config), 0, 0));
+			container.addChild(new Text(formatShellCall(args, theme, enabled ? config : NO_HIGHLIGHT), 0, 0));
 
-			const segments = parseShellCommands(typeof args?.command === "string" ? args.command : "", config.separators);
+			const segments = enabled
+				? parseShellCommands(typeof args?.command === "string" ? args.command : "", config.separators)
+				: [];
 			if (segments.length > 1) {
 				// The parent ToolExecution box supplies the tool background. A nested
 				// theme.bg() resets that background, so restore it after each custom

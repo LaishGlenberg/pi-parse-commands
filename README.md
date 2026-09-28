@@ -96,11 +96,30 @@ commands:
 separators: ["&&", "||", ";"]
 ```
 
-When a newer version adds a top-level option, the extension upgrades an existing config on
-load: it inserts the option with its default in place (keeping comments), writes a
-`config.jsonc.bak` (or matching `.bak`) backup first, and does nothing when the config is
-already current. Configs are never created automatically, and a malformed config is left
-untouched.
+When a newer version adds a top-level option, run `/parcom config` to bring an existing
+config up to date: it inserts the missing option with its default (keeping comments) and
+writes a `.bak` backup first. Nothing is migrated or written automatically on load; a
+malformed config is left untouched unless you confirm the regenerate prompt.
+
+## Slash commands
+
+Run `/parcom` in the TUI to control the extension at runtime:
+
+| Command | Effect |
+| --- | --- |
+| `/parcom on` | Enable the command breakdown for this session |
+| `/parcom off` | Disable it for this session and restore the built-in command line |
+| `/parcom config` | Create, upgrade, or regenerate the config file |
+
+`on`/`off` are **session-scoped**: they flip a runtime flag and reset to `on` the next time
+pi starts. A `parcom:on` / `parcom:off` status indicator shows the current state.
+
+`/parcom config` manages the config file from the TUI. With no config it writes the default
+template to `config.jsonc`; with a config that predates a newer top-level option it inserts
+the option in place (keeping comments) and writes a `.bak` backup; with a current config it
+reports it is up to date and offers to regenerate it from the default. A malformed config is
+never overwritten unless you confirm that prompt. Changes take effect immediately, and the
+command is TUI-only. The command completes `on`, `off`, and `config` as you type.
 
 ## Behavior
 

@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 export type CommandColorLevel = 0 | 1 | 2 | 3;
@@ -151,41 +150,63 @@ export function findCommandConfigPath(configDirectory: string): string | undefin
 	return undefined;
 }
 
-function defaultConfigDirectories(): string[] {
-	const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * The single directory where command config files live.
+ *
+ * Defaults to `<PI_CODING_AGENT_DIR or ~/.pi/agent>/extensions/pi-parse-commands-config`.
+ * Tests and embedders can override it explicitly; reads and writes always use
+ * this one directory so the config has a predictable home.
+ */
+export function extensionConfigDirectory(configDirectory?: string): string {
+	if (configDirectory) return configDirectory;
 	const agentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent");
-	return [
-		path.join(agentDirectory, "extensions", CONFIG_DIRECTORY_NAME),
-		path.join(os.homedir(), ".pi", "agent", "extensions", CONFIG_DIRECTORY_NAME),
-		// Also support a sibling config directory when the extension is checked out locally
-		// or installed as a folder under an extensions directory.
-		path.join(moduleDirectory, "..", CONFIG_DIRECTORY_NAME),
-		path.join(moduleDirectory, CONFIG_DIRECTORY_NAME),
-		path.join(process.cwd(), CONFIG_DIRECTORY_NAME),
-	];
+	return path.join(agentDirectory, "extensions", CONFIG_DIRECTORY_NAME);
 }
 
-/** Load the first config file found. JSONC and YAML are supported. */
+/**
+ * Resolve the config file an explicit config action should target.
+ *
+ * Returns the first existing supported file, or the path a new `config.jsonc`
+ * would be created at when the directory has no config yet.
+ */
+export function extensionConfigPath(configDirectory?: string): string {
+	const directory = extensionConfigDirectory(configDirectory);
+	return findCommandConfigPath(directory) ?? path.join(directory, CONFIG_FILENAMES[0]);
+}
+
+/** Write config contents, creating the parent directory when needed. */
+export function saveCommandConfig(content: string, configPath: string): void {
+	fs.mkdirSync(path.dirname(configPath), { recursive: true });
+	fs.writeFileSync(configPath, content, "utf8");
+}
+
+/** Starter JSONC shown by `/parcom config` when no config file exists yet. */
+export const DEFAULT_CONFIG_TEMPLATE = `{
+  // 0 = green, 1 = yellow, 2 = orange, 3 = red
+  "commands": {
+    "rm": 3
+  },
+  // List operators that start a new breakdown line.
+  // Defaults to the three below; add any of "|&", "|", "&" to opt in.
+  "separators": ["&&", "||", ";"]
+}
+`;
+
+/**
+ * Load the config from the extension config directory. JSONC and YAML are supported.
+ *
+ * Missing, unreadable, or malformed files fall back to the built-in defaults;
+ * this never creates or modifies a file.
+ */
 export function loadCommandConfig(configDirectory?: string): CommandHighlightConfig {
-	const directories = configDirectory ? [configDirectory] : defaultConfigDirectories();
-	const seen = new Set<string>();
-
-	for (const directory of directories) {
-		const normalizedDirectory = path.resolve(directory);
-		if (seen.has(normalizedDirectory)) continue;
-		seen.add(normalizedDirectory);
-
-		const configPath = findCommandConfigPath(normalizedDirectory);
-		if (!configPath) continue;
-		try {
-			return parseCommandConfigContent(fs.readFileSync(configPath, "utf8"), configPath);
-		} catch (error) {
-			console.warn(`[pi-parse-commands] Could not load ${configPath}: ${String(error)}`);
-			return { ...EMPTY_CONFIG, commands: {} };
-		}
+	const configPath = findCommandConfigPath(extensionConfigDirectory(configDirectory));
+	if (!configPath) return { ...EMPTY_CONFIG, commands: {} };
+	try {
+		return parseCommandConfigContent(fs.readFileSync(configPath, "utf8"), configPath);
+	} catch (error) {
+		console.warn(`[pi-parse-commands] Could not load ${configPath}: ${String(error)}`);
+		return { ...EMPTY_CONFIG, commands: {} };
 	}
-
-	return { ...EMPTY_CONFIG, commands: {} };
 }
 
 // ---------------------------------------------------------------------------
@@ -215,15 +236,6 @@ const CONFIG_FEATURES: readonly ConfigFeature[] = [
 		yamlBlock: `separators:\n${DEFAULT_SEPARATORS.map((separator) => `  - "${separator}"`).join("\n")}`,
 	},
 ];
-
-export interface ConfigMigrationResult {
-	/** Path of the migrated config file. */
-	path: string;
-	/** Path of the backup written before the config was edited. */
-	backupPath: string;
-	/** Top-level keys that were added. */
-	added: string[];
-}
 
 /** Top-level options missing from a parsed config document, in registry order. */
 export function findMissingConfigFeatures(content: string, filename = "config.jsonc"): string[] {
@@ -328,54 +340,22 @@ function appendYamlFeatures(content: string, features: readonly ConfigFeature[])
 }
 
 /**
- * Add newly introduced top-level options to the first config file found.
+ * Add newly introduced top-level options to an existing config file in place.
  *
- * Returns `undefined` when no config exists (the extension never creates one),
- * when the config already contains every known option (making this idempotent),
- * or when the file cannot be read, parsed, or written. A `.bak` copy of the
- * original file is written before the config is edited.
+ * Reads `configPath`, writes a `.bak` copy, inserts the requested options while
+ * preserving comments and formatting, and writes the result back. Returns the
+ * config path and throws when the file cannot be read, parsed, or written.
  */
-export function migrateCommandConfig(configDirectory?: string): ConfigMigrationResult | undefined {
-	const directories = configDirectory ? [configDirectory] : defaultConfigDirectories();
-	const seen = new Set<string>();
+export function applyCommandConfigMigration(configPath: string, keys: readonly string[]): string {
+	const missing = CONFIG_FEATURES.filter((feature) => keys.includes(feature.key));
+	const content = fs.readFileSync(configPath, "utf8");
+	const extension = path.extname(configPath).toLowerCase();
+	const migrated =
+		extension === ".yaml" || extension === ".yml"
+			? appendYamlFeatures(content, missing)
+			: insertJsonFeatures(content, missing);
 
-	for (const directory of directories) {
-		const normalizedDirectory = path.resolve(directory);
-		if (seen.has(normalizedDirectory)) continue;
-		seen.add(normalizedDirectory);
-
-		const configPath = findCommandConfigPath(normalizedDirectory);
-		if (!configPath) continue;
-
-		let content: string;
-		let added: string[];
-		try {
-			content = fs.readFileSync(configPath, "utf8");
-			added = findMissingConfigFeatures(content, configPath);
-		} catch (error) {
-			console.warn(`[pi-parse-commands] Could not inspect ${configPath} for migration: ${String(error)}`);
-			return undefined;
-		}
-		if (added.length === 0) return undefined;
-
-		const features = CONFIG_FEATURES.filter((feature) => added.includes(feature.key));
-		const extension = path.extname(configPath).toLowerCase();
-		const migrated =
-			extension === ".yaml" || extension === ".yml"
-				? appendYamlFeatures(content, features)
-				: insertJsonFeatures(content, features);
-
-		const backupPath = `${configPath}.bak`;
-		try {
-			fs.copyFileSync(configPath, backupPath);
-			fs.writeFileSync(configPath, migrated, "utf8");
-		} catch (error) {
-			console.warn(`[pi-parse-commands] Could not migrate ${configPath}: ${String(error)}`);
-			return undefined;
-		}
-
-		return { path: configPath, backupPath, added };
-	}
-
-	return undefined;
+	fs.copyFileSync(configPath, `${configPath}.bak`);
+	fs.writeFileSync(configPath, migrated, "utf8");
+	return configPath;
 }

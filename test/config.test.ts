@@ -3,10 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	applyCommandConfigMigration,
+	DEFAULT_CONFIG_TEMPLATE,
+	extensionConfigDirectory,
+	extensionConfigPath,
 	findMissingConfigFeatures,
 	loadCommandConfig,
-	migrateCommandConfig,
 	parseCommandConfigContent,
+	saveCommandConfig,
 } from "../config.ts";
 
 const DEFAULT_SEPARATORS = ["&&", "||", ";"];
@@ -227,9 +231,18 @@ describe("config file loading", () => {
 		expect(warn).toHaveBeenCalledOnce();
 		expect(String(warn.mock.calls[0]?.[0])).toContain(configPath);
 	});
+
+	it("ignores a config outside the extension config directory", () => {
+		const agentDirectory = createTemporaryDirectory();
+		process.env.PI_CODING_AGENT_DIR = agentDirectory;
+		const elsewhere = join(agentDirectory, "pi-parse-commands-config");
+		mkdirSync(elsewhere, { recursive: true });
+		writeFileSync(join(elsewhere, "config.jsonc"), '{"commands":{"node":1}}');
+		expect(loadCommandConfig()).toEqual(emptyConfig());
+	});
 });
 
-describe("default config directories", () => {
+describe("extension config directory loading", () => {
 	it("honors PI_CODING_AGENT_DIR", () => {
 		const agentDirectory = createTemporaryDirectory();
 		process.env.PI_CODING_AGENT_DIR = agentDirectory;
@@ -257,11 +270,7 @@ describe("config migration", () => {
 		const original = `{\n  // keep me\n  "commands": {\n    "node": 1\n  }\n}\n`;
 		writeFileSync(configPath, original);
 
-		expect(migrateCommandConfig(directory)).toEqual({
-			path: configPath,
-			backupPath: `${configPath}.bak`,
-			added: ["separators"],
-		});
+		expect(applyCommandConfigMigration(configPath, ["separators"])).toBe(configPath);
 
 		const migrated = readFileSync(configPath, "utf8");
 		expect(migrated).toContain("// keep me");
@@ -270,23 +279,12 @@ describe("config migration", () => {
 		expect(readFileSync(`${configPath}.bak`, "utf8")).toBe(original);
 	});
 
-	it("is idempotent once the option is present", () => {
-		const directory = createTemporaryDirectory();
-		const configPath = join(directory, "config.jsonc");
-		const original = '{"commands":{},"separators":["&&"]}';
-		writeFileSync(configPath, original);
-
-		expect(migrateCommandConfig(directory)).toBeUndefined();
-		expect(readFileSync(configPath, "utf8")).toBe(original);
-		expect(existsSync(`${configPath}.bak`)).toBe(false);
-	});
-
 	it("migrates an empty object", () => {
 		const directory = createTemporaryDirectory();
 		const configPath = join(directory, "config.jsonc");
 		writeFileSync(configPath, "{}");
 
-		expect(migrateCommandConfig(directory)?.added).toEqual(["separators"]);
+		applyCommandConfigMigration(configPath, ["separators"]);
 		expect(parseCommandConfigContent(readFileSync(configPath, "utf8"), configPath)).toEqual(emptyConfig());
 	});
 
@@ -296,7 +294,7 @@ describe("config migration", () => {
 		const original = '{"commands": {},}';
 		writeFileSync(configPath, original);
 
-		expect(migrateCommandConfig(directory)?.added).toEqual(["separators"]);
+		applyCommandConfigMigration(configPath, ["separators"]);
 		const migrated = readFileSync(configPath, "utf8");
 		expect(migrated).not.toContain(",,");
 		expect(parseCommandConfigContent(migrated, configPath)).toEqual(emptyConfig());
@@ -308,7 +306,7 @@ describe("config migration", () => {
 		const configPath = join(directory, "config.yaml");
 		writeFileSync(configPath, "# keep me\ncommands:\n  node: 1\n");
 
-		expect(migrateCommandConfig(directory)?.added).toEqual(["separators"]);
+		applyCommandConfigMigration(configPath, ["separators"]);
 		const migrated = readFileSync(configPath, "utf8");
 		expect(migrated).toContain("# keep me");
 		expect(parseCommandConfigContent(migrated, configPath)).toEqual({
@@ -317,28 +315,61 @@ describe("config migration", () => {
 		});
 	});
 
-	it("does nothing when no config exists", () => {
-		const directory = createTemporaryDirectory();
-		expect(migrateCommandConfig(directory)).toBeUndefined();
-		expect(existsSync(join(directory, "config.jsonc"))).toBe(false);
-	});
-
-	it("leaves a malformed config untouched and warns", () => {
+	it("throws instead of writing when the config cannot be parsed", () => {
 		const directory = createTemporaryDirectory();
 		const configPath = join(directory, "config.jsonc");
 		const original = "{ not valid";
 		writeFileSync(configPath, original);
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-		expect(migrateCommandConfig(directory)).toBeUndefined();
+		expect(() => applyCommandConfigMigration(configPath, ["separators"])).toThrow();
 		expect(readFileSync(configPath, "utf8")).toBe(original);
 		expect(existsSync(`${configPath}.bak`)).toBe(false);
-		expect(warn).toHaveBeenCalledOnce();
 	});
 
 	it("reports missing features without touching the file", () => {
 		expect(findMissingConfigFeatures('{"commands":{}}')).toEqual(["separators"]);
 		expect(findMissingConfigFeatures('{"separators":["&&"]}')).toEqual([]);
 		expect(findMissingConfigFeatures("[1,2,3]")).toEqual([]);
+	});
+});
+
+describe("config paths", () => {
+	it("prefers an existing config file over creating a new one", () => {
+		const directory = createTemporaryDirectory();
+		const yamlPath = join(directory, "config.yaml");
+		writeFileSync(yamlPath, "commands:\n  node: 1\n");
+		expect(extensionConfigPath(directory)).toBe(yamlPath);
+	});
+
+	it("falls back to config.jsonc when no config exists", () => {
+		const directory = createTemporaryDirectory();
+		expect(extensionConfigPath(directory)).toBe(join(directory, "config.jsonc"));
+	});
+
+	it("resolves the agent extension directory from PI_CODING_AGENT_DIR", () => {
+		const directory = createTemporaryDirectory();
+		process.env.PI_CODING_AGENT_DIR = directory;
+		expect(extensionConfigDirectory()).toBe(join(directory, "extensions", "pi-parse-commands-config"));
+	});
+
+	it("honors an explicit config directory override", () => {
+		const directory = createTemporaryDirectory();
+		process.env.PI_CODING_AGENT_DIR = createTemporaryDirectory();
+		expect(extensionConfigDirectory(directory)).toBe(directory);
+		expect(extensionConfigPath(directory)).toBe(join(directory, "config.jsonc"));
+	});
+
+	it("saves config content and creates the parent directory", () => {
+		const directory = join(createTemporaryDirectory(), "nested", "config");
+		const configPath = join(directory, "config.jsonc");
+		saveCommandConfig('{"commands":{"node":1}}', configPath);
+		expect(readFileSync(configPath, "utf8")).toBe('{"commands":{"node":1}}');
+	});
+
+	it("ships a template that parses to the defaults", () => {
+		expect(parseCommandConfigContent(DEFAULT_CONFIG_TEMPLATE, "config.jsonc")).toEqual({
+			commands: { rm: 3 },
+			separators: ["&&", "||", ";"],
+		});
 	});
 });
