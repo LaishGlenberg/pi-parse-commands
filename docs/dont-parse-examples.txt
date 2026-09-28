@@ -1,0 +1,168 @@
+ $ cd /tmp && cat > rtest.sh <<'EOF' 
+ #!/usr/bin/env bash 
+ while true; do
+ printf 'P> '
+ IFS= read -rn1 a || { echo "EOF"; exit; } 
+ IFS= read -r b || b=""
+ printf '[%q|%q]\n' "$a" "$b"
+ [ "$a" = q ] && exit 0
+ done
+ EOF 
+ printf 'zzz\nscripts\nq\n' | timeout 8 script -q -e -c "bash /tmp/rtest.sh" /dev/null 2>&1 | cat -v; echo "exit=$?" (timeout 20s) 
+ 
+ 
+1. cd /tmp &&
+2. cat > rtest.sh <<'EOF'
+3. while true ;
+4. do
+5. printf 'P> '
+6. IFS= read -rn1 a || 
+7. { echo "EOF" ;
+8. exit ;
+9. } 
+
+
+
+
+
+
+cd /home/lg/projects/cse511/a2 && echo "===
+ locks/processes ==="; ls -la .~lock.*
+ 2>/dev/null; pgrep -af soffice.bin | sed 
+ 's/--splash.*//'; echo "=== verify ==="; unzip 
+ -t 
+ Laish_Glenberg_CSE565_SpecificationBasedTestingA 
+ ssignment_reordered.xlsx >/dev/null && echo "zip 
+ OK"; 
+ /home/lg/projects/machine-learning/.venv/bin/pyt 
+ hon - <<'PY' 
+ from openpyxl import load_workbook 
+ p='Laish_Glenberg_CSE565_SpecificationBasedTesti 
+ ngAssignment_reordered.xlsx' 
+ wb=load_workbook(p); m=wb['Test Case Matrix']; 
+ d=wb['Defect Tracking '] 
+ nums=[m.cell(row=r,column=2).value for r in
+ range(3,29)] 
+ print('numbers 1..26:', nums==list(range(1,27))) 
+ print('fails:', sum(1 for r in range(3,29) if
+ m.cell(row=r,column=10).value=='Fail'))
+ print('\nTC | name | age | reward | season | cat 
+ | rating | PF')
+ for r in range(3,29):
+ v=[m.cell(row=r,column=c).value for c in 
+ range(2,11)] 
+ print(f"TC{v[0]:02d} {v[1]:11s} {v[2]:3} 
+ {v[4]:6s} {v[5]:6s} {v[6]:11s} {v[7]:2}
+ {m.cell(row=r,column=10).value}")
+ print('\ndefect -> TC:') 
+ for r in range(4,15):
+ print(d.cell(row=r,column=1).value,
+ d.cell(row=r,column=4).value, '|', 
+ d.cell(row=r,column=2).value)
+ PY (timeout 60s) 
+
+
+
+
+
+
+
+
+
+$ cd /home/lg/projects/cse511/a2 &&
+ /home/lg/projects/machine-learning/.venv/bin/pyt 
+ hon - <<'PY' 
+ import shutil, re, os
+ from openpyxl import load_workbook 
+
+ MASTER='Laish_Glenberg_CSE565_SpecificationBased 
+ TestingAssignment.xlsx'
+ BACKUP='Laish_Glenberg_CSE565_SpecificationBased 
+ TestingAssignment_BACKUP.xlsx' 
+ NEW='Laish_Glenberg_CSE565_SpecificationBasedTes 
+ tingAssignment_reordered.xlsx' 
+
+ shutil.copy2(MASTER, BACKUP) 
+ shutil.copy2(MASTER, NEW)
+
+ wb=load_workbook(NEW)
+ m=wb['Test Case Matrix']; d=wb['Defect Tracking
+ '] 
+
+ # read 26 data rows (3..28), keep old case 
+ number + values A..K 
+ rows=[]
+ for r in range(3,29):
+ old=m.cell(row=r,column=2).value 
+ vals=[m.cell(row=r,column=c).value for c in
+ range(1,12)] 
+ rows.append((old, vals)) 
+ by_old={old:vals for old,vals in rows} 
+ assert len(rows)==26, len(rows)
+
+ # minimal swaps within groupings 
+ order=list(range(1,27))
+ def swap(a,b): 
+ ia,ib=order.index(a),order.index(b); 
+ order[ia],order[ib]=order[ib],order[ia]
+ # EP block (1-10)
+ swap(2,5); swap(7,9) 
+ # BVA block (11-20)
+ swap(11,14); swap(16,19) 
+ # cause/effect block (21-26) 
+ swap(21,24); swap(22,26) 
+
+ old_to_new={old:i+1 for i,old in 
+ enumerate(order)}
+
+ # write reordered rows with new sequential 
+ numbers
+ for i,old in enumerate(order): 
+ r=3+i
+ vals=by_old[old] 
+ m.cell(row=r,column=2).value=i+1 
+ for c in range(1,12):
+ m.cell(row=r,column=c).value=vals[c-1] 
+
+ # update defect tracking: descriptions + Test
+ Cases Mapping
+ for r in range(4,15):
+ desc=d.cell(row=r,column=2).value
+ if desc: 
+
+ d.cell(row=r,column=2).value=re.sub(r'Test 
+ (\d+)',
+ lambda mo: f'Test
+ {old_to_new[int(mo.group(1))]}', desc) 
+ tc=d.cell(row=r,column=4).value
+ if tc and tc.startswith('TC'): 
+ n=int(tc[2:])
+
+ d.cell(row=r,column=4).value=f'TC{old_to_new[n]: 
+ 02d}'
+
+ wb.save(NEW) 
+ print('BACKUP:', os.path.abspath(BACKUP))
+ print('NEW :', os.path.abspath(NEW)) 
+ print('order (old case numbers):', order)
+ print('old->new:', old_to_new) 
+ PY
+
+
+
+
+
+
+
+
+$ cd /tmp && cat > rtest.sh <<'EOF'
+ #!/usr/bin/env bash
+ while true; do 
+ printf 'P> ' 
+ IFS= read -rn1 a || { echo "EOF"; exit; }
+ IFS= read -r b || b="" 
+ printf '[%q|%q]\n' "$a" "$b" 
+ [ "$a" = q ] && exit 0 
+ done 
+ EOF
+ printf 'zzz\nscripts\nq\n' | timeout 8 script -q -e -c "bash /tmp/rtest.sh" /dev/null 2>&1 | cat -v; echo "exit=$?"
