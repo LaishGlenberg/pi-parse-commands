@@ -104,6 +104,17 @@ against the extracted tarball inside a throwaway `PI_CODING_AGENT_DIR`.
 `test/release-version.test.ts` covers the release workflow's version resolver
 in `scripts/release-version.ts`.
 
+`test/e2e.test.ts` is an opt-in test that exercises the real agent directory
+instead of a throwaway one: it runs `pi install npm:@lglen/pi-parse-commands`,
+repoints `settings.json` from the local symlink to the npm-installed copy, runs
+a smoke prompt that must print `SUCCESS`, then uninstalls and restores the
+original settings. It mutates `~/.pi/agent/settings.json` and calls a real
+model, so it is skipped unless `PI_E2E=1`:
+
+```bash
+PI_E2E=1 npm run test:e2e
+```
+
 ```bash
 npm install
 npm test
