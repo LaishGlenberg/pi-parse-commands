@@ -57,6 +57,8 @@
 	"scripts": {
 		"test": "vitest --run",
 		"typecheck": "tsc --noEmit",
-		"lint": "oxlint --deny-warnings index.ts config.ts highlight.ts scripts test"
+		"lint": "oxlint --deny-warnings index.ts config.ts highlight.ts scripts test",
+		"minor": "npm version minor --no-git-tag-version",
+		"major": "npm version minor --no-git-tag-version"
 	}
 }
