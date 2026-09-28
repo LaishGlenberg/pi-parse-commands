@@ -28,13 +28,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import {
+	applyCommandConfigMigration,
 	DEFAULT_CONFIG_TEMPLATE,
 	DEFAULT_SEPARATORS,
+	extensionConfigPath,
+	findMissingConfigFeatures,
 	loadCommandConfig,
-	migrateCommandConfig,
 	normalizeSeparators,
-	parseCommandConfigContent,
-	resolveCommandConfigPath,
 	saveCommandConfig,
 	type CommandHighlightConfig,
 } from "./config.ts";
@@ -226,7 +226,7 @@ const PARCOM_COMMAND = "parcom";
 const PARCOM_OPTIONS: readonly AutocompleteItem[] = [
 	{ value: "on", label: "on", description: "Enable the command breakdown for this session" },
 	{ value: "off", label: "off", description: "Disable the command breakdown for this session" },
-	{ value: "config", label: "config", description: "Edit the highlight config in a TUI editor" },
+	{ value: "config", label: "config", description: "Create, upgrade, or regenerate the highlight config" },
 ];
 
 /** Rendering config used while the breakdown is disabled: no highlighting or splitting. */
@@ -237,13 +237,15 @@ function describeError(error: unknown): string {
 }
 
 export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashCommandBreakdownOptions = {}): void {
-	// Keep an existing personal config in sync with options added by newer
-	// versions (e.g. `separators`) before loading it, so a migrated option takes
-	// effect on this load. Skipped when a config is injected directly.
-	if (!options.config) migrateCommandConfig(options.configDirectory);
 	let config = options.config ?? loadCommandConfig(options.configDirectory);
 	// Session-scoped: `/parcom off` suppresses rendering until re-enabled or the session restarts.
 	let enabled = true;
+
+	// Re-read the on-disk config after `/parcom config` edits it, unless a config
+	// was injected directly (tests or embedding applications).
+	const reloadConfig = (): void => {
+		if (!options.config) config = loadCommandConfig(options.configDirectory);
+	};
 
 	const updateStatus = (ctx: ExtensionContext): void => {
 		ctx.ui.setStatus(
@@ -252,54 +254,73 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 		);
 	};
 
-	const editConfig = async (ctx: ExtensionCommandContext): Promise<void> => {
-		if (!ctx.hasUI) {
-			ctx.ui.notify("/parcom config requires an interactive UI", "error");
-			return;
-		}
+	const offerRegenerate = async (ctx: ExtensionCommandContext, configPath: string): Promise<void> => {
+		const confirmed = await ctx.ui.confirm(
+			"Regenerate config?",
+			`This deletes ${configPath} and recreates it from the default. Continue?`,
+		);
+		if (!confirmed) return;
 
-		const configPath = resolveCommandConfigPath(options.configDirectory);
-		let content: string;
 		try {
-			content = existsSync(configPath) ? readFileSync(configPath, "utf8") : DEFAULT_CONFIG_TEMPLATE;
+			saveCommandConfig(DEFAULT_CONFIG_TEMPLATE, configPath);
 		} catch (error) {
-			ctx.ui.notify(`Could not read ${configPath}: ${describeError(error)}`, "error");
+			ctx.ui.notify(`Could not write ${configPath}: ${describeError(error)}`, "error");
+			return;
+		}
+		reloadConfig();
+		ctx.ui.notify(`Regenerated ${configPath}`, "info");
+	};
+
+	const configure = async (ctx: ExtensionCommandContext): Promise<void> => {
+		if (ctx.mode !== "tui") {
+			ctx.ui.notify("/parcom config is only available in the TUI", "warning");
 			return;
 		}
 
-		for (;;) {
-			const edited = await ctx.ui.editor(`parcom config — ${configPath}`, content);
-			if (edited === undefined) {
-				ctx.ui.notify("Config edit cancelled", "info");
+		const configPath = extensionConfigPath(options.configDirectory);
+
+		// 1. No config yet: generate the default template.
+		if (!existsSync(configPath)) {
+			try {
+				saveCommandConfig(DEFAULT_CONFIG_TEMPLATE, configPath);
+			} catch (error) {
+				ctx.ui.notify(`Could not write ${configPath}: ${describeError(error)}`, "error");
 				return;
 			}
-
-			try {
-				parseCommandConfigContent(edited, configPath);
-			} catch (error) {
-				ctx.ui.notify(`Invalid config: ${describeError(error)}`, "error");
-				const keepEditing = await ctx.ui.confirm("Invalid config", "The config was not saved. Keep editing?");
-				if (!keepEditing) return;
-				content = edited;
-				continue;
-			}
-
-			try {
-				saveCommandConfig(edited, configPath);
-			} catch (error) {
-				ctx.ui.notify(`Could not save ${configPath}: ${describeError(error)}`, "error");
-				return;
-			}
-
-			// Pick up the new highlight levels and separators without a restart.
-			if (!options.config) config = loadCommandConfig(options.configDirectory);
-			ctx.ui.notify(`Saved ${configPath}`, "info");
+			reloadConfig();
+			ctx.ui.notify(`Created ${configPath}`, "info");
 			return;
 		}
+
+		// 2. Existing config: add any top-level options introduced by newer versions.
+		let missing: string[];
+		try {
+			missing = findMissingConfigFeatures(readFileSync(configPath, "utf8"), configPath);
+		} catch (error) {
+			ctx.ui.notify(`Could not parse ${configPath}: ${describeError(error)}`, "error");
+			await offerRegenerate(ctx, configPath);
+			return;
+		}
+
+		if (missing.length > 0) {
+			try {
+				applyCommandConfigMigration(configPath, missing);
+			} catch (error) {
+				ctx.ui.notify(`Could not update ${configPath}: ${describeError(error)}`, "error");
+				return;
+			}
+			reloadConfig();
+			ctx.ui.notify(`Updated ${configPath}: added ${missing.join(", ")}`, "info");
+			return;
+		}
+
+		// 3. Current config: offer a clean regenerate from the default.
+		ctx.ui.notify("Your config is already up to date.", "info");
+		await offerRegenerate(ctx, configPath);
 	};
 
 	pi.registerCommand(PARCOM_COMMAND, {
-		description: "Toggle or edit the bash command breakdown",
+		description: "Toggle or configure the bash command breakdown",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] =>
 			PARCOM_OPTIONS.filter((item) => item.value.startsWith(prefix)).map((item) => ({ ...item })),
 		handler: async (args, ctx) => {
@@ -317,7 +338,7 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 				return;
 			}
 			if (option === "config") {
-				await editConfig(ctx);
+				await configure(ctx);
 				return;
 			}
 			if (option === "") {

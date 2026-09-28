@@ -97,23 +97,21 @@ interface CommandNotifications {
 	type?: string;
 }
 
-function createCommandContext() {
+function createCommandContext(mode: ExtensionCommandContext["mode"] = "tui") {
 	const notifications: CommandNotifications[] = [];
 	const statuses = new Map<string, string | undefined>();
-	const editor = vi.fn(async (_title: string, _prefill?: string): Promise<string | undefined> => undefined);
 	const confirm = vi.fn(async (_title: string, _message: string): Promise<boolean> => false);
 	const ctx = {
 		hasUI: true,
-		mode: "tui",
+		mode,
 		ui: {
 			notify: (message: string, type?: string) => notifications.push({ message, type }),
 			setStatus: (key: string, text: string | undefined) => statuses.set(key, text),
-			editor,
 			confirm,
 			theme: { fg: (color: string, text: string) => `{${color}:${text}}` },
 		},
 	} as unknown as ExtensionCommandContext;
-	return { ctx, notifications, statuses, editor, confirm };
+	return { ctx, notifications, statuses, confirm };
 }
 
 function renderCall(tool: any, args: any, width = 100): string {
@@ -509,18 +507,6 @@ describe("pi-parse-commands extension", () => {
 		tool.renderCall({ command: "a && b" }, theme, { state, executionStarted: false });
 		expect(state.startedAt).toBeUndefined();
 	});
-
-	it("migrates a stale config directory when no config is injected", () => {
-		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-migrate-"));
-		try {
-			const configPath = join(directory, "config.jsonc");
-			writeFileSync(configPath, '{"commands":{"node":1}}');
-			collectTool({ configDirectory: directory });
-			expect(readFileSync(configPath, "utf8")).toContain('"separators"');
-		} finally {
-			rmSync(directory, { recursive: true, force: true });
-		}
-	});
 });
 
 // ---------------------------------------------------------------------------
@@ -586,56 +572,139 @@ describe("/parcom command", () => {
 		});
 	});
 
-	it("writes the edited config and applies it without a restart", async () => {
+	it("creates the default config when none exists and applies it immediately", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
 		try {
 			const { tool, commands } = collectExtension({ configDirectory: directory });
-			const { ctx, editor } = createCommandContext();
-			editor.mockResolvedValueOnce('{"commands":{"node":3}}');
+			const { ctx, notifications } = createCommandContext();
 
 			await commands.get("parcom").handler("config", ctx);
 
 			const configPath = join(directory, "config.jsonc");
-			expect(readFileSync(configPath, "utf8")).toBe('{"commands":{"node":3}}');
-			expect(editor).toHaveBeenCalledWith(`parcom config — ${configPath}`, DEFAULT_CONFIG_TEMPLATE);
-			const output = renderCall(tool, { command: "node -v && echo done" });
-			expect(output).toContain("{error:node}");
+			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
+			expect(notifications.at(-1)).toEqual({ message: `Created ${configPath}`, type: "info" });
+			const output = renderCall(tool, { command: "rm -rf build && echo done" });
+			expect(output).toContain("{error:rm}");
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}
 	});
 
-	it("prefills an existing config file", async () => {
+	it("adds missing options to an existing config and reports the addition", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
 		try {
 			const configPath = join(directory, "config.jsonc");
-			const existing = '{"commands":{"rg":2},"separators":["&&","||",";"]}';
-			writeFileSync(configPath, existing);
+			const original = `{\n  // keep me\n  "commands": { "rm": 3 }\n}\n`;
+			writeFileSync(configPath, original);
 			const { commands } = collectExtension({ configDirectory: directory });
-			const { ctx, editor } = createCommandContext();
-			editor.mockResolvedValueOnce(undefined);
+			const { ctx, notifications } = createCommandContext();
 
 			await commands.get("parcom").handler("config", ctx);
 
-			expect(editor).toHaveBeenCalledWith(`parcom config — ${configPath}`, existing);
+			const migrated = readFileSync(configPath, "utf8");
+			expect(migrated).toContain("// keep me");
+			expect(migrated).toContain('"separators"');
+			expect(readFileSync(`${configPath}.bak`, "utf8")).toBe(original);
+			expect(notifications.at(-1)).toEqual({
+				message: `Updated ${configPath}: added separators`,
+				type: "info",
+			});
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}
 	});
 
-	it("re-prompts on invalid config and leaves the file untouched", async () => {
+	it("reports an up-to-date config and leaves it untouched when regeneration is declined", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
 		try {
+			const configPath = join(directory, "config.jsonc");
+			writeFileSync(configPath, DEFAULT_CONFIG_TEMPLATE);
 			const { commands } = collectExtension({ configDirectory: directory });
-			const { ctx, editor, confirm, notifications } = createCommandContext();
-			editor.mockResolvedValueOnce("not valid json");
+			const { ctx, confirm, notifications } = createCommandContext();
 			confirm.mockResolvedValueOnce(false);
 
 			await commands.get("parcom").handler("config", ctx);
 
+			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
+			expect(notifications.some((entry) => entry.message === "Your config is already up to date.")).toBe(true);
+			expect(confirm).toHaveBeenCalledWith(
+				"Regenerate config?",
+				`This deletes ${configPath} and recreates it from the default. Continue?`,
+			);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("regenerates an up-to-date config from the template when confirmed", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
+		try {
+			const configPath = join(directory, "config.jsonc");
+			writeFileSync(configPath, '{"commands":{"rg":2},"separators":["&&","||",";"]}');
+			const { commands } = collectExtension({ configDirectory: directory });
+			const { ctx, confirm, notifications } = createCommandContext();
+			confirm.mockResolvedValueOnce(true);
+
+			await commands.get("parcom").handler("config", ctx);
+
+			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
+			expect(notifications.at(-1)).toEqual({ message: `Regenerated ${configPath}`, type: "info" });
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("offers to regenerate a malformed config and leaves it untouched when declined", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
+		try {
+			const configPath = join(directory, "config.jsonc");
+			const original = "{ not valid";
+			writeFileSync(configPath, original);
+			const { commands } = collectExtension({ configDirectory: directory });
+			const { ctx, confirm, notifications } = createCommandContext();
+			confirm.mockResolvedValueOnce(false);
+
+			await commands.get("parcom").handler("config", ctx);
+
+			expect(readFileSync(configPath, "utf8")).toBe(original);
+			expect(
+				notifications.some((entry) => entry.type === "error" && entry.message.includes("Could not parse")),
+			).toBe(true);
+			expect(confirm).toHaveBeenCalledOnce();
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("regenerates a malformed config when confirmed", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
+		try {
+			const configPath = join(directory, "config.jsonc");
+			writeFileSync(configPath, "{ not valid");
+			const { commands } = collectExtension({ configDirectory: directory });
+			const { ctx, confirm } = createCommandContext();
+			confirm.mockResolvedValueOnce(true);
+
+			await commands.get("parcom").handler("config", ctx);
+
+			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("does nothing outside the TUI", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-parse-commands-command-"));
+		try {
+			const { commands } = collectExtension({ configDirectory: directory });
+			const { ctx, notifications } = createCommandContext("rpc");
+
+			await commands.get("parcom").handler("config", ctx);
+
 			expect(existsSync(join(directory, "config.jsonc"))).toBe(false);
-			expect(confirm).toHaveBeenCalledWith("Invalid config", "The config was not saved. Keep editing?");
-			expect(notifications.some((entry) => entry.type === "error")).toBe(true);
+			expect(notifications).toEqual([
+				{ message: "/parcom config is only available in the TUI", type: "warning" },
+			]);
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}

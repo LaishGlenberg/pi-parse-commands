@@ -12,17 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `/parcom on` and `/parcom off` to enable or disable the breakdown for the
   current session, with a `parcom:on`/`parcom:off` status indicator. The toggle
   is session-scoped and resets when pi starts.
-- Add `/parcom config` to edit the highlight config in the multi-line TUI editor.
-  The content is validated as JSONC/YAML before writing, an invalid document
-  re-opens the editor instead of clobbering the file, and a missing config is
-  created from a template on save. Saving applies the new config immediately.
-- Add `resolveCommandConfigPath`, `saveCommandConfig`, and
-  `DEFAULT_CONFIG_TEMPLATE` config helpers used by the editor.
-- Upgrade an existing config on load when it predates a new top-level option:
-  insert the option with its default, preserve comments, and write a `.bak`
-  backup first. Migration runs before the config is loaded, reuses an existing
-  trailing comma instead of emitting a second one, is idempotent, never creates
-  a config, and skips malformed files.
+- Add `/parcom config` to manage the config from the TUI: create `config.jsonc`
+  from the default template when none exists, insert newly introduced top-level
+  options in place (keeping comments, with a `.bak` backup), or offer to
+  regenerate a current config from the default. Malformed configs are only
+  overwritten after confirmation, and the command is TUI-only.
+- Add `extensionConfigDirectory`, `extensionConfigPath`,
+  `applyCommandConfigMigration`, and `saveCommandConfig` config helpers.
+
+### Changed
+
+- Read and write configs in the single extension config directory
+  (`<agentDir>/extensions/pi-parse-commands-config/`). The former cwd, module
+  sibling, and home-fallback search is removed.
+- Move config migration out of extension load: nothing writes a config until you
+  run `/parcom config`, and the on-load migration was removed.
 
 ## [1.1.0] - 2026-09-26
 
