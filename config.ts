@@ -180,7 +180,7 @@ export function saveCommandConfig(content: string, configPath: string): void {
 	fs.writeFileSync(configPath, content, "utf8");
 }
 
-/** Starter JSONC shown by `/parcom config` when no config file exists yet. */
+/** Starter JSONC shown by `/parse-commands config` when no config file exists yet. */
 export const DEFAULT_CONFIG_TEMPLATE = `{
   // 0 = green, 1 = yellow, 2 = orange, 3 = red
   "commands": {

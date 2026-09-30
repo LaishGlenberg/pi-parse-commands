@@ -16,14 +16,13 @@ The extension wraps the built-in `bash` tool:
 Re-registering a built-in tool by name replaces it; only rendering changes.
 Execution, truncation, timing, and expansion are the original implementation.
 
-A `/parcom` command controls the extension at runtime. `on`/`off` flip a
+A `/parse-commands` command controls the extension at runtime. `on`/`off` flip a
 session-scoped `enabled` flag: when off, `renderCall` skips the breakdown and
-renders the plain `$ <command>` line instead, and the status indicator switches
-to `parcom:off`. Because the bash tool is registered once, the flag is read
-inside `renderCall` rather than by re-registering the tool. The flag resets to
-enabled when the extension loads for a new session.
+renders the plain `$ <command>` line instead. Because the bash tool is registered
+once, the flag is read inside `renderCall` rather than by re-registering the
+tool. The flag resets to enabled when the extension loads for a new session.
 
-`/parcom config` is TUI-only (any other `ctx.mode` gets a notification and no
+`/parse-commands config` is TUI-only (any other `ctx.mode` gets a notification and no
 write) and is the only thing that ever writes config. It resolves the target with
 `extensionConfigPath` in the single config directory and does one of three
 things: with no config it writes `DEFAULT_CONFIG_TEMPLATE` to `config.jsonc`;
@@ -101,7 +100,7 @@ options are introduced. It feature-detects missing keys against `CONFIG_FEATURES
 or appends a block for YAML, and writes a `.bak` copy first. Editing the text in
 place preserves user comments and formatting; re-serializing would discard both.
 It targets an explicit `configPath`, so there is no multi-directory search and no
-migration on load: only `/parcom config` calls it. `extensionConfigDirectory` is
+migration on load: only `/parse-commands config` calls it. `extensionConfigDirectory` is
 the single source of the config directory and `extensionConfigPath` picks the
 first supported file (or the `config.jsonc` a new one would use).
 
@@ -139,9 +138,9 @@ reuse, and the throw-on-malformed contract. Config path tests cover
 `extensionConfigDirectory` / `extensionConfigPath` and `saveCommandConfig`, plus
 the template parsing to the defaults.
 
-`/parcom` coverage exercises argument completion, session-scoped toggling
-(including suppression of highlighting), the status indicator, and the full
-`/parcom config` matrix: create-from-template, upgrade an older config, decline
+`/parse-commands` coverage exercises argument completion, session-scoped toggling
+(including suppression of highlighting), and the full
+`/parse-commands config` matrix: create-from-template, upgrade an older config, decline
 or confirm regeneration of a current config, malformed-config handling, and the
 non-TUI no-op.
 

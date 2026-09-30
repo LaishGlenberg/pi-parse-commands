@@ -44,12 +44,12 @@ there unless explicitly asked; all work happens in this repo.
 
 | Path | Purpose |
 | --- | --- |
-| `index.ts` | Extension factory: registers the `bash` override and the `/parcom` command. |
+| `index.ts` | Extension factory: registers the `bash` override and the `/parse-commands` command. |
 | `config.ts` | Config discovery/parsing (JSONC + YAML), separators, defaults, migration helpers. |
 | `highlight.ts` | Executable-name highlighting for one command / the whole line. |
 | `test/*.test.ts` | Vitest; `e2e.test.ts` is opt-in. |
 | `docs/development.md` | Deep technical notes (parser, rendering, testing, release). |
-| `docs/parcom-config-command-plan.md` | Pending rework of `/parcom config`. |
+| `docs/parse-commands-config-command-plan.md` | Pending rework of `/parse-commands config`. |
 | `scripts/release-version.ts` | Version resolver used by the release workflow. |
 
 ## Commands
@@ -107,8 +107,8 @@ trailing operator) and `splitShellCommands(command)` (command strings only).
   (`startedAt`/`endedAt`) so `renderResult` can show elapsed time.
 - The breakdown uses `theme.bg("customMessageBg", ...)` and must restore the parent
   tool background after each line via `theme.getBgAnsi(...)`.
-- `/parcom on` / `/parcom off` are session-scoped and flip an `enabled` flag read
-  inside `renderCall`. `/parcom config` is TUI-only and is the only writer of the
+- `/parse-commands on` / `/parse-commands off` are session-scoped and flip an `enabled` flag read
+  inside `renderCall`. `/parse-commands config` is TUI-only and is the only writer of the
   config file (generate / upgrade / regenerate).
 
 ## Config
@@ -119,18 +119,18 @@ trailing operator) and `splitShellCommands(command)` (command strings only).
 - Defaults when no config exists: no highlighted commands and separators
   `["&&", "||", ";"]`.
 - JSONC comments/trailing commas and YAML are supported. Never create or modify a
-  config implicitly; `/parcom config` is the only writer, and only in the TUI.
+  config implicitly; `/parse-commands config` is the only writer, and only in the TUI.
 - Highlight levels are `0`–`3` and map to theme colors: `0` `success` (green),
   `1` `warning` (yellow), `2` `mdHeading` (orange), `3` `error` (red).
 - Only the executable at the start of each command is highlighted; leading
   `VAR=value` assignments are skipped. Normalization drops unknown/duplicate
   separators and out-of-range levels.
-- `/parcom config` generates `config.jsonc` from the template when none exists,
+- `/parse-commands config` generates `config.jsonc` from the template when none exists,
   calls `applyCommandConfigMigration` when a top-level option is missing (in place,
   `.bak` first), or offers a confirmed regenerate of a current config. Reads and
   writes use the one `extensionConfigDirectory`; `extensionConfigPath` picks the
   target file. There is no migration on load. See
-  `docs/parcom-config-command-plan.md` for the design record.
+  `docs/parse-commands-config-command-plan.md` for the design record.
 
 ### Adding a config option
 
@@ -152,7 +152,7 @@ trailing operator) and `splitShellCommands(command)` (command strings only).
 ## Testing patterns
 
 - `test/parse-commands.test.ts` exposes `collectExtension(options)` (returns the
-  registered `bash` tool plus the `/parcom` command) and `collectTool(options)`. A
+  registered `bash` tool plus the `/parse-commands` command) and `collectTool(options)`. A
   `createCommandContext(mode)` fake wires `notify`, `setStatus`, `confirm`, and
   `theme.fg`, and defaults to `"tui"` mode.
 - The fake `Theme` renders colors as `{color:text}`, so assertions can check for

@@ -1,4 +1,4 @@
-# Plan: `/parcom config` scaffolds, upgrades, and regenerates the config
+# Plan: `/parse-commands config` scaffolds, upgrades, and regenerates the config
 
 > Status: implemented. This document is kept as the design record for the
 > generate/upgrade/regenerate command; the behavior below matches the shipped
@@ -6,7 +6,7 @@
 
 ## Goal
 
-`/parcom config` is the **only** thing that ever writes config. It runs on demand in
+`/parse-commands config` is the **only** thing that ever writes config. It runs on demand in
 the TUI and does one of three things against the extension config directory:
 
 1. **No config** → generate the default config file.
@@ -16,7 +16,7 @@ the TUI and does one of three things against the extension config directory:
    from the default.
 
 Automatic migration on extension load is removed. Users who have no config and have
-never run `/parcom config` always get pure defaults: the three separators
+never run `/parse-commands config` always get pure defaults: the three separators
 (`&&`, `||`, `;`) and **no** command highlighting. The extension never touches their
 filesystem by itself.
 
@@ -27,16 +27,16 @@ filesystem by itself.
   `PI_CODING_AGENT_DIR` or `~/.pi/agent` (tests inject `options.configDirectory`).
   The old cwd / module-sibling / home-fallback search is removed for both reads and
   writes, so the config always lives in one predictable place.
-- **TUI only.** When `ctx.mode !== "tui"` (RPC/JSON/print), `/parcom config`
+- **TUI only.** When `ctx.mode !== "tui"` (RPC/JSON/print), `/parse-commands config`
   notifies that it is only available in the interactive TUI and does nothing.
-  `/parcom on` / `/parcom off` stay available in every mode.
+  `/parse-commands on` / `/parse-commands off` stay available in every mode.
 
 ## Behavior
 
-### `/parcom config` flow
+### `/parse-commands config` flow
 
 ```
-if (ctx.mode !== "tui") { notify("/parcom config is only available in the TUI"); return; }
+if (ctx.mode !== "tui") { notify("/parse-commands config is only available in the TUI"); return; }
 
 dir        = extensionConfigDirectory(options.configDirectory)
 configPath = findCommandConfigPath(dir)      // any supported filename, or undefined
@@ -133,7 +133,7 @@ demonstration entry), so a generated file is immediately up to date:
 
 `loadCommandConfig` returns `{ commands: {}, separators: ["&&", "||", ";"] }` when no
 file exists. With the load-time migration call removed, nothing writes implicitly;
-the only path that creates a file is `/parcom config`.
+the only path that creates a file is `/parse-commands config`.
 
 ## Files to change
 
@@ -143,7 +143,7 @@ the only path that creates a file is `/parcom config`.
 | `config.ts` | Add `extensionConfigDirectory` / `extensionConfigPath`; restrict `loadCommandConfig`; replace `migrateCommandConfig` with `applyCommandConfigMigration`; remove `defaultConfigDirectories` / `resolveCommandConfigPath`; rewrite `DEFAULT_CONFIG_TEMPLATE`. |
 | `test/parse-commands.test.ts` | Replace editor tests with the command-behavior matrix below; delete the migration-on-load test. |
 | `test/config.test.ts` | Drop load-time migration coverage; cover `extensionConfigDirectory` / `extensionConfigPath`, path-targeted migration, single-directory loading, and the new template. |
-| `README.md` | Rewrite `/parcom config` docs; remove the automatic-migration paragraph. |
+| `README.md` | Rewrite `/parse-commands config` docs; remove the automatic-migration paragraph. |
 | `docs/development.md` | Document the three-way command flow and the removal of load-time migration. |
 | `CHANGELOG.md` | Under Unreleased: scaffolding/upgrade/regenerate command; note that automatic config migration was removed. |
 | `package.json` | Bump minor (`npm run minor`) once implemented. |
@@ -171,7 +171,7 @@ the only path that creates a file is `/parcom config`.
 - Both reads and writes are restricted to the single extension directory; the
   multi-directory search is removed rather than kept for local dev.
 - A generated template is complete, so it is "up to date" from the start and a
-  second `/parcom config` goes straight to the regenerate offer.
+  second `/parse-commands config` goes straight to the regenerate offer.
 
 ## Verification
 
