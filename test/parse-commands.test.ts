@@ -624,29 +624,29 @@ describe("pi-parse-commands extension", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /parcom command
+// /parse-commands command
 // ---------------------------------------------------------------------------
 
-describe("/parcom command", () => {
+describe("/parse-commands command", () => {
 	it("completes the on, off, and config options", () => {
 		const { commands } = collectExtension();
-		const complete = commands.get("parcom").getArgumentCompletions;
+		const complete = commands.get("parse-commands").getArgumentCompletions;
 		expect(complete("").map((item: any) => item.value)).toEqual(["on", "off", "config"]);
 		expect(complete("o").map((item: any) => item.value)).toEqual(["on", "off"]);
 		expect(complete("c").map((item: any) => item.value)).toEqual(["config"]);
 		expect(complete("zzz")).toEqual([]);
 	});
 
-	it("hides the breakdown after /parcom off and restores it after /parcom on", async () => {
+	it("hides the breakdown after /parse-commands off and restores it after /parse-commands on", async () => {
 		const { tool, commands } = collectExtension();
 		const { ctx } = createCommandContext();
 
-		await commands.get("parcom").handler("off", ctx);
+		await commands.get("parse-commands").handler("off", ctx);
 		const off = renderCall(tool, { command: "cd /tmp && make" });
 		expect(off).not.toContain("bg=customMessageBg");
 		expect(off).toContain("*$ cd /tmp && make*");
 
-		await commands.get("parcom").handler("on", ctx);
+		await commands.get("parse-commands").handler("on", ctx);
 		const on = renderCall(tool, { command: "cd /tmp && make" });
 		expect(on).toContain("bg=customMessageBg");
 		expect(on).toContain("{muted:1.}");
@@ -655,33 +655,24 @@ describe("/parcom command", () => {
 	it("turns off command highlighting along with the breakdown", async () => {
 		const { tool, commands } = collectExtension({ config: { commands: { node: 1 } } });
 		const { ctx } = createCommandContext();
-		await commands.get("parcom").handler("off", ctx);
+		await commands.get("parse-commands").handler("off", ctx);
 		const off = renderCall(tool, { command: "node -v && echo done" });
 		expect(off).not.toContain("{warning:node}");
-	});
-
-	it("updates the parcom status when toggled", async () => {
-		const { commands } = collectExtension();
-		const { ctx, statuses } = createCommandContext();
-		await commands.get("parcom").handler("off", ctx);
-		expect(statuses.get("parcom")).toBe("{dim:parcom:off}");
-		await commands.get("parcom").handler("on", ctx);
-		expect(statuses.get("parcom")).toBe("{accent:parcom:on}");
 	});
 
 	it("reports the current state when called with no option", async () => {
 		const { commands } = collectExtension();
 		const { ctx, notifications } = createCommandContext();
-		await commands.get("parcom").handler("", ctx);
+		await commands.get("parse-commands").handler("", ctx);
 		expect(notifications.at(-1)?.message).toContain("Command breakdown is on");
 	});
 
 	it("warns on an unknown option", async () => {
 		const { commands } = collectExtension();
 		const { ctx, notifications } = createCommandContext();
-		await commands.get("parcom").handler("nope", ctx);
+		await commands.get("parse-commands").handler("nope", ctx);
 		expect(notifications.at(-1)).toEqual({
-			message: 'Unknown /parcom option "nope". Use on, off, or config.',
+			message: 'Unknown /parse-commands option "nope". Use on, off, or config.',
 			type: "warning",
 		});
 	});
@@ -692,7 +683,7 @@ describe("/parcom command", () => {
 			const { tool, commands } = collectExtension({ configDirectory: directory });
 			const { ctx, notifications } = createCommandContext();
 
-			await commands.get("parcom").handler("config", ctx);
+			await commands.get("parse-commands").handler("config", ctx);
 
 			const configPath = join(directory, "config.jsonc");
 			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
@@ -713,7 +704,7 @@ describe("/parcom command", () => {
 			const { commands } = collectExtension({ configDirectory: directory });
 			const { ctx, notifications } = createCommandContext();
 
-			await commands.get("parcom").handler("config", ctx);
+			await commands.get("parse-commands").handler("config", ctx);
 
 			const migrated = readFileSync(configPath, "utf8");
 			expect(migrated).toContain("// keep me");
@@ -737,7 +728,7 @@ describe("/parcom command", () => {
 			const { ctx, confirm, notifications } = createCommandContext();
 			confirm.mockResolvedValueOnce(false);
 
-			await commands.get("parcom").handler("config", ctx);
+			await commands.get("parse-commands").handler("config", ctx);
 
 			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
 			expect(notifications.some((entry) => entry.message === "Your config is already up to date.")).toBe(true);
@@ -759,7 +750,7 @@ describe("/parcom command", () => {
 			const { ctx, confirm, notifications } = createCommandContext();
 			confirm.mockResolvedValueOnce(true);
 
-			await commands.get("parcom").handler("config", ctx);
+			await commands.get("parse-commands").handler("config", ctx);
 
 			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
 			expect(notifications.at(-1)).toEqual({ message: `Regenerated ${configPath}`, type: "info" });
@@ -778,7 +769,7 @@ describe("/parcom command", () => {
 			const { ctx, confirm, notifications } = createCommandContext();
 			confirm.mockResolvedValueOnce(false);
 
-			await commands.get("parcom").handler("config", ctx);
+			await commands.get("parse-commands").handler("config", ctx);
 
 			expect(readFileSync(configPath, "utf8")).toBe(original);
 			expect(
@@ -799,7 +790,7 @@ describe("/parcom command", () => {
 			const { ctx, confirm } = createCommandContext();
 			confirm.mockResolvedValueOnce(true);
 
-			await commands.get("parcom").handler("config", ctx);
+			await commands.get("parse-commands").handler("config", ctx);
 
 			expect(readFileSync(configPath, "utf8")).toBe(DEFAULT_CONFIG_TEMPLATE);
 		} finally {
@@ -813,11 +804,11 @@ describe("/parcom command", () => {
 			const { commands } = collectExtension({ configDirectory: directory });
 			const { ctx, notifications } = createCommandContext("rpc");
 
-			await commands.get("parcom").handler("config", ctx);
+			await commands.get("parse-commands").handler("config", ctx);
 
 			expect(existsSync(join(directory, "config.jsonc"))).toBe(false);
 			expect(notifications).toEqual([
-				{ message: "/parcom config is only available in the TUI", type: "warning" },
+				{ message: "/parse-commands config is only available in the TUI", type: "warning" },
 			]);
 		} finally {
 			rmSync(directory, { recursive: true, force: true });

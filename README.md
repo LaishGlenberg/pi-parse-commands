@@ -103,25 +103,25 @@ commands:
 separators: ["&&", "||", ";"]
 ```
 
-When a newer version adds a top-level option, run `/parcom config` to bring an existing
+When a newer version adds a top-level option, run `/parse-commands config` to bring an existing
 config up to date: it inserts the missing option with its default (keeping comments) and
 writes a `.bak` backup first. Nothing is migrated or written automatically on load; a
 malformed config is left untouched unless you confirm the regenerate prompt.
 
 ## Slash commands
 
-Run `/parcom` in the TUI to control the extension at runtime:
+Run `/parse-commands` in the TUI to control the extension at runtime:
 
 | Command | Effect |
 | --- | --- |
-| `/parcom on` | Enable the command breakdown for this session |
-| `/parcom off` | Disable it for this session and restore the built-in command line |
-| `/parcom config` | Create, upgrade, or regenerate the config file |
+| `/parse-commands on` | Enable the command breakdown for this session |
+| `/parse-commands off` | Disable it for this session and restore the built-in command line |
+| `/parse-commands config` | Create, upgrade, or regenerate the config file |
 
 `on`/`off` are **session-scoped**: they flip a runtime flag and reset to `on` the next time
-pi starts. A `parcom:on` / `parcom:off` status indicator shows the current state.
+pi starts.
 
-`/parcom config` manages the config file from the TUI. With no config it writes the default
+`/parse-commands config` manages the config file from the TUI. With no config it writes the default
 template to `config.jsonc`; with a config that predates a newer top-level option it inserts
 the option in place (keeping comments) and writes a `.bak` backup; with a current config it
 reports it is up to date and offers to regenerate it from the default. A malformed config is

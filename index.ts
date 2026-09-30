@@ -25,7 +25,6 @@ import {
 	createBashToolDefinition,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
-	type ExtensionContext,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem, Container, Spacer, Text } from "@earendil-works/pi-tui";
@@ -409,8 +408,8 @@ export interface BashCommandBreakdownOptions {
 }
 
 /** Slash command name and its session-scoped options. */
-const PARCOM_COMMAND = "parcom";
-const PARCOM_OPTIONS: readonly AutocompleteItem[] = [
+const COMMAND_NAME = "parse-commands";
+const COMMAND_OPTIONS: readonly AutocompleteItem[] = [
 	{ value: "on", label: "on", description: "Enable the command breakdown for this session" },
 	{ value: "off", label: "off", description: "Disable the command breakdown for this session" },
 	{ value: "config", label: "config", description: "Create, upgrade, or regenerate the highlight config" },
@@ -425,20 +424,13 @@ function describeError(error: unknown): string {
 
 export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashCommandBreakdownOptions = {}): void {
 	let config = options.config ?? loadCommandConfig(options.configDirectory);
-	// Session-scoped: `/parcom off` suppresses rendering until re-enabled or the session restarts.
+	// Session-scoped: `/parse-commands off` suppresses rendering until re-enabled or the session restarts.
 	let enabled = true;
 
-	// Re-read the on-disk config after `/parcom config` edits it, unless a config
+	// Re-read the on-disk config after `/parse-commands config` edits it, unless a config
 	// was injected directly (tests or embedding applications).
 	const reloadConfig = (): void => {
 		if (!options.config) config = loadCommandConfig(options.configDirectory);
-	};
-
-	const updateStatus = (ctx: ExtensionContext): void => {
-		ctx.ui.setStatus(
-			PARCOM_COMMAND,
-			enabled ? ctx.ui.theme.fg("accent", "parcom:on") : ctx.ui.theme.fg("dim", "parcom:off"),
-		);
 	};
 
 	const offerRegenerate = async (ctx: ExtensionCommandContext, configPath: string): Promise<void> => {
@@ -460,7 +452,7 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 
 	const configure = async (ctx: ExtensionCommandContext): Promise<void> => {
 		if (ctx.mode !== "tui") {
-			ctx.ui.notify("/parcom config is only available in the TUI", "warning");
+			ctx.ui.notify(`/${COMMAND_NAME} config is only available in the TUI`, "warning");
 			return;
 		}
 
@@ -506,21 +498,19 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 		await offerRegenerate(ctx, configPath);
 	};
 
-	pi.registerCommand(PARCOM_COMMAND, {
+	pi.registerCommand(COMMAND_NAME, {
 		description: "Toggle or configure the bash command breakdown",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] =>
-			PARCOM_OPTIONS.filter((item) => item.value.startsWith(prefix)).map((item) => ({ ...item })),
+			COMMAND_OPTIONS.filter((item) => item.value.startsWith(prefix)).map((item) => ({ ...item })),
 		handler: async (args, ctx) => {
 			const option = args.trim().toLowerCase();
 			if (option === "on") {
 				enabled = true;
-				updateStatus(ctx);
 				ctx.ui.notify("Command breakdown enabled", "info");
 				return;
 			}
 			if (option === "off") {
 				enabled = false;
-				updateStatus(ctx);
 				ctx.ui.notify("Command breakdown disabled", "info");
 				return;
 			}
@@ -530,17 +520,13 @@ export default function bashCommandBreakdown(pi: ExtensionAPI, options: BashComm
 			}
 			if (option === "") {
 				ctx.ui.notify(
-					`Command breakdown is ${enabled ? "on" : "off"}. Use /parcom on, /parcom off, or /parcom config.`,
+					`Command breakdown is ${enabled ? "on" : "off"}. Use /${COMMAND_NAME} on, /${COMMAND_NAME} off, or /${COMMAND_NAME} config.`,
 					"info",
 				);
 				return;
 			}
-			ctx.ui.notify(`Unknown /parcom option "${option}". Use on, off, or config.`, "warning");
+			ctx.ui.notify(`Unknown /${COMMAND_NAME} option "${option}". Use on, off, or config.`, "warning");
 		},
-	});
-
-	pi.on("session_start", (_event, ctx) => {
-		updateStatus(ctx);
 	});
 
 	// Reuse the built-in implementation so execution and result rendering stay
